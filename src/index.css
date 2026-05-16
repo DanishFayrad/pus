@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Force the app to a single light theme (white + blue) regardless of OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: #ffffff;
+}
