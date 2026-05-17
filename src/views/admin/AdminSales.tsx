@@ -1,9 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
-
-function fmt(n: number) {
-  return '$' + n.toFixed(2)
-}
+import { formatMoney as fmt } from '../../lib/currency'
 
 export default function AdminSales() {
   const { sales } = useStore()

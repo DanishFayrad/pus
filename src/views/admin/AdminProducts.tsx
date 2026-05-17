@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../context/StoreContext'
+import { useConfirm } from '../../components/ConfirmProvider'
+import { formatMoney as fmt } from '../../lib/currency'
 import type { Product } from '../../types'
 
 interface FormState {
@@ -12,12 +14,9 @@ interface FormState {
 
 const emptyForm: FormState = { barcode: '', name: '', price: '', cost: '', stock: '' }
 
-function fmt(n: number) {
-  return '$' + n.toFixed(2)
-}
-
 export default function AdminProducts() {
   const { products, addProduct, updateProduct, deleteProduct, resetMockData } = useStore()
+  const confirm = useConfirm()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
@@ -89,11 +88,37 @@ export default function AdminProducts() {
   }
 
   const remove = async (p: Product) => {
-    if (!confirm(`Delete "${p.name}"?`)) return
+    const ok = await confirm({
+      title: 'Delete product',
+      message: (
+        <>
+          Are you sure you want to delete <span className="font-semibold text-slate-900">{p.name}</span>?
+          This action cannot be undone.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     try {
       await deleteProduct(p.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Delete failed')
+    }
+  }
+
+  const resetDemo = async () => {
+    const ok = await confirm({
+      title: 'Reset demo data',
+      message: 'This will re-seed any missing demo products and users into the database. Existing rows will not be deleted. Continue?',
+      confirmLabel: 'Reset',
+    })
+    if (ok) {
+      try {
+        await resetMockData()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Reset failed')
+      }
     }
   }
 
@@ -104,9 +129,7 @@ export default function AdminProducts() {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => {
-              if (confirm('Reset all products and sales to demo data?')) resetMockData()
-            }}
+            onClick={resetDemo}
             className="px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             Reset demo data

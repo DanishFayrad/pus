@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     setError(null)
@@ -20,8 +21,6 @@ export default function LoginPage() {
   }, [user, router])
 
   if (user) return null
-
-  const [submitting, setSubmitting] = useState(false)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()

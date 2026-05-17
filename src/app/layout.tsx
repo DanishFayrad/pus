@@ -2,6 +2,7 @@
 import '../index.css';
 import { AuthProvider } from '../context/AuthContext';
 import { StoreProvider } from '../context/StoreContext';
+import { ConfirmProvider } from '../components/ConfirmProvider';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,7 +10,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <AuthProvider>
           <StoreProvider>
-            {children}
+            <ConfirmProvider>
+              {children}
+            </ConfirmProvider>
           </StoreProvider>
         </AuthProvider>
       </body>
