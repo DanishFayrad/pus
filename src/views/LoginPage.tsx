@@ -98,25 +98,7 @@ export default function LoginPage() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <div className="text-xs text-slate-500 border-t border-slate-200 dark:border-slate-700 pt-4">
-          <div className="font-medium mb-2">Demo credentials (click to fill)</div>
-          <div className="flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={() => fillDemo('admin', 'admin123')}
-              className="text-left hover:text-blue-600 hover:underline"
-            >
-              admin / admin123
-            </button>
-            <button
-              type="button"
-              onClick={() => fillDemo('cashier', 'cashier123')}
-              className="text-left hover:text-blue-600 hover:underline"
-            >
-              cashier / cashier123
-            </button>
-          </div>
-        </div>
+     
       </form>
     </div>
   )
