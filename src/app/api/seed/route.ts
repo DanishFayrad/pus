@@ -8,10 +8,19 @@ export const runtime = 'nodejs'
 
 /**
  * POST /api/seed
- * Idempotent: only inserts products/users that don't already exist (by barcode / username).
- * Call once after first deploy, then call again any time to top up missing demo rows.
+ * Requires header `x-seed-secret: <SEED_SECRET env value>`.
+ * Idempotent:
+ *   - inserts products that don't exist (by barcode)
+ *   - inserts users that don't exist (by username)
+ *   - migrates plaintext user passwords to bcrypt hashes
  */
-export async function POST() {
+export async function POST(req: Request) {
+  const expected = process.env.SEED_SECRET
+  const provided = req.headers.get('x-seed-secret')
+  if (!expected || !provided || provided !== expected) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   try {
     await dbConnect()
 
@@ -31,9 +40,11 @@ export async function POST() {
     }
 
     let usersInserted = 0
+    let usersMigrated = 0
     for (const u of mockUsers) {
-      const exists = await User.findOne({ username: u.username.toLowerCase() })
-      if (!exists) {
+      const existing = await User.findOne({ username: u.username.toLowerCase() })
+      if (!existing) {
+        // Pre-save hook hashes the plaintext from mockData.
         await User.create({
           username: u.username.toLowerCase(),
           password: u.password,
@@ -41,6 +52,11 @@ export async function POST() {
           role: u.role,
         })
         usersInserted++
+      } else if (!existing.password.startsWith('$2')) {
+        // Legacy plaintext password — migrate to bcrypt.
+        existing.password = u.password
+        await existing.save() // pre-save hook will hash
+        usersMigrated++
       }
     }
 
@@ -48,6 +64,7 @@ export async function POST() {
       ok: true,
       productsInserted,
       usersInserted,
+      usersMigrated,
       totalProducts: await Product.countDocuments(),
       totalUsers: await User.countDocuments(),
     })

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import dbConnect from '../../../lib/mongodb'
+import { getSession } from '../../../lib/auth'
 import Product from '../../../models/Product'
 import Sale from '../../../models/Sale'
 
@@ -11,6 +12,9 @@ interface IncomingItem {
 }
 
 export async function GET() {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     await dbConnect()
     const sales = await Sale.find().sort({ date: -1 }).limit(500)
@@ -22,13 +26,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const body = await req.json().catch(() => null)
     if (!body || !Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json({ error: 'items required' }, { status: 400 })
-    }
-    if (!body.cashier || !body.cashier.id || !body.cashier.name) {
-      return NextResponse.json({ error: 'cashier required' }, { status: 400 })
     }
 
     await dbConnect()
@@ -61,17 +65,17 @@ export async function POST(req: Request) {
     const total = saleItems.reduce((s, i) => s + i.price * i.quantity, 0)
     const cost = saleItems.reduce((s, i) => s + i.cost * i.quantity, 0)
 
+    // Cashier identity is taken from the verified session, NOT from the request body.
     const sale = await Sale.create({
       date: new Date(),
-      cashierId: String(body.cashier.id),
-      cashierName: String(body.cashier.name),
+      cashierId: session.id,
+      cashierName: session.name,
       items: saleItems,
       total,
       cost,
       profit: total - cost,
     })
 
-    // Decrement stock
     await Promise.all(
       saleItems.map((i) =>
         Product.findByIdAndUpdate(i.productId, { $inc: { stock: -i.quantity } }),

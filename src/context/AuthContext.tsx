@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import type { User } from '../types'
 
 interface AuthContextValue {
-  // undefined = initial check in progress (SSR / before localStorage read)
+  // undefined = initial check in progress
   // null      = checked, not logged in
   // User      = logged in
   user: User | null | undefined
@@ -13,38 +13,37 @@ interface AuthContextValue {
     username: string,
     password: string,
   ) => Promise<{ ok: true; user: User } | { ok: false; error: string }>
-  logout: () => void
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
-const STORAGE_KEY = 'salespoint.auth'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined)
 
-  // Hydrate from localStorage on client mount.
+  // On mount, verify session by hitting the server. The session is in an HTTP-only
+  // cookie that JS can't read, so we ask the server who we are.
   useEffect(() => {
-    try {
-      const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
-      setUser(raw ? (JSON.parse(raw) as User) : null)
-    } catch {
-      setUser(null)
+    let cancelled = false
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((data) => {
+        if (!cancelled) setUser((data?.user as User | null) ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null)
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
-
-  // Persist whenever user is set after init.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (user === undefined) return
-    if (user) localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
-    else localStorage.removeItem(STORAGE_KEY)
-  }, [user])
 
   const login: AuthContextValue['login'] = async (username, password) => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       })
       const data = await res.json().catch(() => ({}))
@@ -59,7 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const logout = () => setUser(null)
+  const logout: AuthContextValue['logout'] = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      /* ignore — clear local state anyway */
+    }
+    setUser(null)
+  }
 
   return (
     <AuthContext.Provider value={{ user, loading: user === undefined, login, logout }}>

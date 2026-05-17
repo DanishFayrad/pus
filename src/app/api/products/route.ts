@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import dbConnect from '../../../lib/mongodb'
+import { getSession } from '../../../lib/auth'
 import Product from '../../../models/Product'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     await dbConnect()
     const products = await Product.find().sort({ name: 1 })
@@ -16,6 +20,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
   try {
     const body = await req.json().catch(() => null)
     if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })

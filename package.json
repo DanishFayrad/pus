@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "bcryptjs": "^3.0.3",
     "html5-qrcode": "^2.3.8",
+    "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.2.0",
     "mongoose": "^9.6.2",
     "next": "^16.2.6",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

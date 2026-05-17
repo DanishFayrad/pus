@@ -11,3 +11,12 @@ html,
 body {
   background: #ffffff;
 }
+
+/* Hide horizontal scrollbar on the mobile nav while keeping scroll behaviour */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

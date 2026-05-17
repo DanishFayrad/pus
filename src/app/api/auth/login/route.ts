@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
 import dbConnect from '../../../../lib/mongodb'
+import { setSessionCookie } from '../../../../lib/auth'
 import User from '../../../../models/User'
 
 export const runtime = 'nodejs'
@@ -15,19 +17,35 @@ export async function POST(req: Request) {
     const password = body.password.trim()
 
     await dbConnect()
-    const user = await User.findOne({ username }).lean<{ _id: unknown; username: string; password: string; name: string; role: 'admin' | 'cashier' }>()
-    if (!user || user.password !== password) {
+    const user = await User.findOne({ username }).lean<{
+      _id: unknown
+      username: string
+      password: string
+      name: string
+      role: 'admin' | 'cashier'
+    }>()
+    if (!user) {
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 })
     }
 
-    return NextResponse.json({
-      user: {
-        id: String(user._id),
-        username: user.username,
-        name: user.name,
-        role: user.role,
-      },
-    })
+    // Support both hashed (new) and plaintext (legacy, pre-migration) stored passwords.
+    const stored = user.password
+    const ok = stored.startsWith('$2')
+      ? await bcrypt.compare(password, stored)
+      : stored === password
+    if (!ok) {
+      return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 })
+    }
+
+    const sessionUser = {
+      id: String(user._id),
+      username: user.username,
+      name: user.name,
+      role: user.role,
+    }
+    await setSessionCookie(sessionUser)
+
+    return NextResponse.json({ user: sessionUser })
   } catch (e) {
     console.error('login error', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

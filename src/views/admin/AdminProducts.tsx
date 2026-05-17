@@ -123,21 +123,21 @@ export default function AdminProducts() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Products</h1>
-        <div className="flex gap-2">
+    <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl sm:text-2xl font-bold">Products</h1>
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={resetDemo}
-            className="px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="px-3 py-2 text-xs sm:text-sm rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             Reset demo data
           </button>
           <button
             type="button"
             onClick={startNew}
-            className="px-3 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium"
+            className="px-3 py-2 text-xs sm:text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium"
           >
             + Add product
           </button>
@@ -212,16 +212,17 @@ export default function AdminProducts() {
       )}
 
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900">
             <tr>
-              <th className="px-4 py-2 font-medium">Barcode</th>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium text-right">Price</th>
-              <th className="px-4 py-2 font-medium text-right">Cost</th>
-              <th className="px-4 py-2 font-medium text-right">Margin</th>
-              <th className="px-4 py-2 font-medium text-right">Stock</th>
-              <th className="px-4 py-2 font-medium" />
+              <th className="px-3 sm:px-4 py-2 font-medium hidden sm:table-cell">Barcode</th>
+              <th className="px-3 sm:px-4 py-2 font-medium">Name</th>
+              <th className="px-3 sm:px-4 py-2 font-medium text-right">Price</th>
+              <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Cost</th>
+              <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Margin</th>
+              <th className="px-3 sm:px-4 py-2 font-medium text-right">Stock</th>
+              <th className="px-3 sm:px-4 py-2 font-medium" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -229,25 +230,28 @@ export default function AdminProducts() {
               const margin = p.price - p.cost
               return (
                 <tr key={p.id}>
-                  <td className="px-4 py-2 font-mono text-xs">{p.barcode}</td>
-                  <td className="px-4 py-2">{p.name}</td>
-                  <td className="px-4 py-2 text-right">{fmt(p.price)}</td>
-                  <td className="px-4 py-2 text-right">{fmt(p.cost)}</td>
+                  <td className="px-3 sm:px-4 py-2 font-mono text-xs hidden sm:table-cell">{p.barcode}</td>
+                  <td className="px-3 sm:px-4 py-2">
+                    <div>{p.name}</div>
+                    <div className="text-[10px] text-slate-500 font-mono sm:hidden">{p.barcode}</div>
+                  </td>
+                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">{fmt(p.price)}</td>
+                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden md:table-cell">{fmt(p.cost)}</td>
                   <td
-                    className={`px-4 py-2 text-right ${
+                    className={`px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden md:table-cell ${
                       margin >= 0 ? 'text-emerald-600' : 'text-red-600'
                     }`}
                   >
                     {fmt(margin)}
                   </td>
                   <td
-                    className={`px-4 py-2 text-right font-medium ${
+                    className={`px-3 sm:px-4 py-2 text-right font-medium ${
                       p.stock <= 5 ? 'text-amber-600' : ''
                     }`}
                   >
                     {p.stock}
                   </td>
-                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => startEdit(p)}
@@ -275,6 +279,7 @@ export default function AdminProducts() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

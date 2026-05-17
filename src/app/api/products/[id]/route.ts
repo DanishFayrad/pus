@@ -1,13 +1,26 @@
 import { NextResponse } from 'next/server'
 import mongoose from 'mongoose'
 import dbConnect from '../../../../lib/mongodb'
+import { getSession } from '../../../../lib/auth'
 import Product from '../../../../models/Product'
 
 export const runtime = 'nodejs'
 
 type Ctx = { params: Promise<{ id: string }> }
 
+async function requireAdmin() {
+  const session = await getSession()
+  if (!session) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  if (session.role !== 'admin') {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  }
+  return { session }
+}
+
 export async function PUT(req: Request, { params }: Ctx) {
+  const gate = await requireAdmin()
+  if ('error' in gate) return gate.error
+
   try {
     const { id } = await params
     if (!mongoose.isValidObjectId(id)) {
@@ -44,6 +57,9 @@ export async function PUT(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
+  const gate = await requireAdmin()
+  if ('error' in gate) return gate.error
+
   try {
     const { id } = await params
     if (!mongoose.isValidObjectId(id)) {

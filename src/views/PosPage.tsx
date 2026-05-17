@@ -131,8 +131,8 @@ export default function PosPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 grid lg:grid-cols-[1fr_400px] gap-4">
-      <section className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 flex flex-col gap-4">
+    <div className="max-w-7xl mx-auto p-3 sm:p-4 grid lg:grid-cols-[1fr_400px] gap-3 sm:gap-4">
+      <section className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-3 sm:p-4 flex flex-col gap-4">
         <div>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold">Scan or enter barcode</h2>
@@ -221,7 +221,7 @@ export default function PosPage() {
         }}
       />
 
-      <section className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 flex flex-col h-fit lg:h-[calc(100vh-7rem)] lg:sticky lg:top-4">
+      <section className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-3 sm:p-4 flex flex-col h-fit lg:h-[calc(100vh-7rem)] lg:sticky lg:top-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">Cart</h2>
           {cart.length > 0 && (
@@ -299,7 +299,9 @@ export default function PosPage() {
 
         {lastSale && (
           <div className="mt-3 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md p-3">
-            <div className="font-semibold mb-1">Last receipt #{lastSale.id}</div>
+            <div className="font-semibold mb-1 truncate">
+              Last receipt #…{lastSale.id.slice(-8)}
+            </div>
             <div className="text-slate-500">
               {new Date(lastSale.date).toLocaleString()} —{' '}
               {lastSale.items.reduce((s, i) => s + i.quantity, 0)} items

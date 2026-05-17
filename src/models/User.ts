@@ -1,4 +1,5 @@
 import mongoose, { Schema, models, model } from 'mongoose'
+import bcrypt from 'bcryptjs'
 
 export interface IUser {
   _id: mongoose.Types.ObjectId
@@ -18,14 +19,23 @@ const UserSchema = new Schema<IUser>(
   { timestamps: true },
 )
 
+// Hash plaintext passwords before save. Idempotent — already-hashed values pass through.
+UserSchema.pre('save', async function (next) {
+  if (this.isModified('password') && !this.password.startsWith('$2')) {
+    this.password = await bcrypt.hash(this.password, 10)
+  }
+  next()
+})
+
 UserSchema.set('toJSON', {
   virtuals: false,
-  transform: (_doc, ret: Record<string, unknown>) => {
-    ret.id = String(ret._id)
-    delete ret._id
-    delete ret.__v
-    delete ret.password
-    return ret
+  transform: (_doc, ret) => {
+    const r = ret as Record<string, unknown>
+    r.id = String(r._id)
+    delete r._id
+    delete r.__v
+    delete r.password
+    return r
   },
 })
 

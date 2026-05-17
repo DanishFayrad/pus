@@ -50,58 +50,60 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-4 space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+    <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
+      <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
         {cards.map((c) => (
           <div
             key={c.label}
-            className={`bg-white dark:bg-slate-800 border ${toneClass[c.tone]} rounded-lg p-4`}
+            className={`bg-white dark:bg-slate-800 border ${toneClass[c.tone]} rounded-lg p-3 sm:p-4`}
           >
-            <div className="text-sm text-slate-500">{c.label}</div>
-            <div className="text-2xl font-bold mt-1">{c.value}</div>
+            <div className="text-xs sm:text-sm text-slate-500">{c.label}</div>
+            <div className="text-lg sm:text-2xl font-bold mt-1 truncate">{c.value}</div>
           </div>
         ))}
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+        <div className="px-3 sm:px-4 py-3 border-b border-slate-200 dark:border-slate-700">
           <h2 className="font-semibold">Recent sales</h2>
         </div>
         {recent.length === 0 ? (
           <div className="p-6 text-center text-slate-500 text-sm">No sales yet.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900">
-              <tr>
-                <th className="px-4 py-2 font-medium">Date</th>
-                <th className="px-4 py-2 font-medium">Cashier</th>
-                <th className="px-4 py-2 font-medium">Items</th>
-                <th className="px-4 py-2 font-medium text-right">Total</th>
-                <th className="px-4 py-2 font-medium text-right">Profit</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-              {recent.map((s) => (
-                <tr key={s.id}>
-                  <td className="px-4 py-2">{new Date(s.date).toLocaleString()}</td>
-                  <td className="px-4 py-2">{s.cashierName}</td>
-                  <td className="px-4 py-2">
-                    {s.items.reduce((a, i) => a + i.quantity, 0)}
-                  </td>
-                  <td className="px-4 py-2 text-right">{fmt(s.total)}</td>
-                  <td
-                    className={`px-4 py-2 text-right ${
-                      s.profit >= 0 ? 'text-emerald-600' : 'text-red-600'
-                    }`}
-                  >
-                    {fmt(s.profit)}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900">
+                <tr>
+                  <th className="px-3 sm:px-4 py-2 font-medium">Date</th>
+                  <th className="px-3 sm:px-4 py-2 font-medium hidden sm:table-cell">Cashier</th>
+                  <th className="px-3 sm:px-4 py-2 font-medium">Items</th>
+                  <th className="px-3 sm:px-4 py-2 font-medium text-right">Total</th>
+                  <th className="px-3 sm:px-4 py-2 font-medium text-right hidden sm:table-cell">Profit</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {recent.map((s) => (
+                  <tr key={s.id}>
+                    <td className="px-3 sm:px-4 py-2 whitespace-nowrap">{new Date(s.date).toLocaleString()}</td>
+                    <td className="px-3 sm:px-4 py-2 hidden sm:table-cell">{s.cashierName}</td>
+                    <td className="px-3 sm:px-4 py-2">
+                      {s.items.reduce((a, i) => a + i.quantity, 0)}
+                    </td>
+                    <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">{fmt(s.total)}</td>
+                    <td
+                      className={`px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden sm:table-cell ${
+                        s.profit >= 0 ? 'text-emerald-600' : 'text-red-600'
+                      }`}
+                    >
+                      {fmt(s.profit)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
