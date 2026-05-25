@@ -20,11 +20,12 @@ const UserSchema = new Schema<IUser>(
 )
 
 // Hash plaintext passwords before save. Idempotent — already-hashed values pass through.
-UserSchema.pre('save', async function (next) {
+// NOTE: async pre-hooks in Mongoose resolve via the returned promise — do NOT call next()
+// (Mongoose does not pass a next callback to async hooks, so calling it throws).
+UserSchema.pre('save', async function () {
   if (this.isModified('password') && !this.password.startsWith('$2')) {
     this.password = await bcrypt.hash(this.password, 10)
   }
-  next()
 })
 
 UserSchema.set('toJSON', {

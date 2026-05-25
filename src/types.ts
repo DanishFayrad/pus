@@ -36,3 +36,15 @@ export interface Sale {
   cost: number
   profit: number
 }
+
+export interface ReturnRequest {
+  id: string
+  productId: string
+  productName: string
+  quantity: number
+  cashierId: string
+  cashierName: string
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: string
+  updatedAt: string
+}

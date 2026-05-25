@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import BarcodeInput from '../components/BarcodeInput'
 import CameraScanner from '../components/CameraScanner'
 import { useStore } from '../context/StoreContext'
 import { useAuth } from '../context/AuthContext'
 import { formatMoney } from '../lib/currency'
+import { formatDateTime } from '../lib/datetime'
 import type { Product, Sale, SaleItem } from '../types'
 
 interface CartLine {
@@ -19,6 +20,17 @@ export default function PosPage() {
   const [lastSale, setLastSale] = useState<Sale | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [returnModal, setReturnModal] = useState<Product | null>(null)
+  const [returnQty, setReturnQty] = useState(1)
+
+  const { returnRequests, createReturnRequest, pollReturns } = useStore()
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      pollReturns()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [pollReturns])
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -193,19 +205,38 @@ export default function PosPage() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
               {filteredProducts.map((p) => (
-                <button
+                <div
                   key={p.id}
-                  type="button"
-                  onClick={() => addByBarcode(p.barcode)}
-                  disabled={p.stock <= 0}
-                  className="text-left p-3 rounded-md border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex flex-col justify-between p-3 rounded-md border border-slate-200 dark:border-slate-700"
                 >
-                  <div className="text-sm font-medium truncate">{p.name}</div>
-                  <div className="text-xs text-slate-500 flex justify-between">
-                    <span>{formatMoney(p.price)}</span>
-                    <span>stock: {p.stock}</span>
+                  <div>
+                    <div className="text-sm font-medium truncate">{p.name}</div>
+                    <div className="text-xs text-slate-500 flex justify-between mt-1">
+                      <span>{formatMoney(p.price)}</span>
+                      <span>stock: {p.stock}</span>
+                    </div>
                   </div>
-                </button>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => addByBarcode(p.barcode)}
+                      disabled={p.stock <= 0}
+                      className="flex-1 py-1.5 px-2 text-xs font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Sell
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReturnModal(p)
+                        setReturnQty(1)
+                      }}
+                      className="flex-1 py-1.5 px-2 text-xs font-medium rounded bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300"
+                    >
+                      Return
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -303,13 +334,74 @@ export default function PosPage() {
               Last receipt #…{lastSale.id.slice(-8)}
             </div>
             <div className="text-slate-500">
-              {new Date(lastSale.date).toLocaleString()} —{' '}
+              {formatDateTime(lastSale.date)} —{' '}
               {lastSale.items.reduce((s, i) => s + i.quantity, 0)} items
             </div>
             <div className="text-slate-500">Total: {formatMoney(lastSale.total)}</div>
           </div>
         )}
+        {returnRequests.filter(r => r.cashierId === user?.id).length > 0 && (
+          <div className="mt-4 border-t border-slate-200 dark:border-slate-700 pt-3">
+            <h3 className="text-sm font-semibold mb-2">My Returns</h3>
+            <div className="space-y-2">
+              {returnRequests.filter(r => r.cashierId === user?.id).slice(0, 5).map(r => (
+                <div key={r.id} className="text-xs p-2 rounded border border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
+                  <div className="truncate flex-1 pr-2">
+                    <span className="font-medium">{r.quantity}x</span> {r.productName}
+                  </div>
+                  <div className={`px-2 py-0.5 rounded-full capitalize ${r.status === 'pending' ? 'bg-amber-100 text-amber-800' : r.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                    {r.status}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
+
+      {returnModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-5 w-full max-w-sm">
+            <h3 className="text-lg font-semibold mb-2">Return Product</h3>
+            <p className="text-sm text-slate-500 mb-4">Request admin approval to return {returnModal.name}.</p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Quantity</label>
+              <input 
+                type="number" 
+                min="1" 
+                value={returnQty}
+                onChange={(e) => setReturnQty(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button 
+                type="button"
+                onClick={() => setReturnModal(null)}
+                className="flex-1 py-2 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await createReturnRequest(returnModal.id, returnModal.name, returnQty)
+                    flash('ok', 'Return request sent to admin')
+                  } catch (e) {
+                    flash('err', e instanceof Error ? e.message : 'Failed to send return request')
+                  } finally {
+                    setReturnModal(null)
+                  }
+                }}
+                className="flex-1 py-2 rounded bg-orange-600 text-white hover:bg-orange-500"
+              >
+                Request Return
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

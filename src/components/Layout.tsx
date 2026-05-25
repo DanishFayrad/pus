@@ -3,12 +3,24 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '../context/AuthContext'
+import { useStore } from '../context/StoreContext'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
+  const { returnRequests, pollReturns } = useStore()
   const router = useRouter()
   const pathname = usePathname()
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const pendingReturns = returnRequests.filter((r) => r.status === 'pending').length
+
+  // Poll for new return requests so the admin gets a near-real-time notification.
+  useEffect(() => {
+    if (user?.role !== 'admin') return
+    pollReturns()
+    const t = setInterval(() => pollReturns(), 15000)
+    return () => clearInterval(t)
+  }, [user, pollReturns])
 
   // Close drawer on route change
   useEffect(() => {
@@ -54,6 +66,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Link href="/admin" className={cls('/admin')}>Dashboard</Link>
           <Link href="/admin/products" className={cls('/admin/products')}>Products</Link>
           <Link href="/admin/sales" className={cls('/admin/sales')}>Sales</Link>
+          <Link href="/admin/returns" className={`${cls('/admin/returns')} flex items-center justify-between gap-2`}>
+            <span>Returns</span>
+            {pendingReturns > 0 && (
+              <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+                {pendingReturns}
+              </span>
+            )}
+          </Link>
           <Link href="/pos" className={cls('/pos')}>POS</Link>
         </>
       )
@@ -90,6 +110,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex-1 md:hidden" />
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {isAdmin && (
+              <Link
+                href="/admin/returns"
+                className="relative p-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+                title={pendingReturns > 0 ? `${pendingReturns} pending return(s)` : 'Return requests'}
+                aria-label="Return requests"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {pendingReturns > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse">
+                    {pendingReturns}
+                  </span>
+                )}
+              </Link>
+            )}
             <div className="text-right hidden lg:block">
               <div className="text-sm font-medium">{user.name}</div>
               <div className="text-xs text-slate-500 capitalize">{user.role}</div>

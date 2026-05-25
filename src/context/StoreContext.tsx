@@ -1,11 +1,12 @@
 'use client'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Product, Sale, SaleItem } from '../types'
+import type { Product, Sale, SaleItem, ReturnRequest } from '../types'
 
 interface StoreContextValue {
   products: Product[]
   sales: Sale[]
+  returnRequests: ReturnRequest[]
   loading: boolean
   error: string | null
   addProduct: (p: Omit<Product, 'id'>) => Promise<void>
@@ -16,8 +17,12 @@ interface StoreContextValue {
     items: SaleItem[],
     cashier: { id: string; name: string },
   ) => Promise<Sale | null>
+  createReturnRequest: (productId: string, productName: string, quantity: number) => Promise<void>
+  updateReturnRequest: (id: string, status: 'approved' | 'rejected') => Promise<void>
+  deleteReturnRequest: (id: string) => Promise<void>
   resetMockData: () => Promise<void>
   refresh: () => Promise<void>
+  pollReturns: () => Promise<void>
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null)
@@ -37,18 +42,21 @@ async function api<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
+  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
       setError(null)
-      const [p, s] = await Promise.all([
+      const [p, s, r] = await Promise.all([
         api<{ products: Product[] }>('/api/products'),
         api<{ sales: Sale[] }>('/api/sales'),
+        api<{ returnRequests: ReturnRequest[] }>('/api/returns'),
       ])
       setProducts(p.products)
       setSales(s.sales)
+      setReturnRequests(r.returnRequests)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
@@ -97,6 +105,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const createReturnRequest: StoreContextValue['createReturnRequest'] = async (productId, productName, quantity) => {
+    await api('/api/returns', {
+      method: 'POST',
+      body: JSON.stringify({ productId, productName, quantity }),
+    })
+    await pollReturns()
+  }
+
+  const updateReturnRequest: StoreContextValue['updateReturnRequest'] = async (id, status) => {
+    await api(`/api/returns/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    })
+    await refresh()
+  }
+
+  const deleteReturnRequest: StoreContextValue['deleteReturnRequest'] = async (id) => {
+    await api(`/api/returns/${id}`, { method: 'DELETE' })
+    await pollReturns()
+  }
+
+  const pollReturns = useCallback(async () => {
+    try {
+      const r = await api<{ returnRequests: ReturnRequest[] }>('/api/returns')
+      setReturnRequests(r.returnRequests)
+    } catch (e) {
+      // ignore polling errors
+    }
+  }, [])
+
   const resetMockData: StoreContextValue['resetMockData'] = async () => {
     await api('/api/seed', { method: 'POST' })
     await refresh()
@@ -107,6 +145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         products,
         sales,
+        returnRequests,
         loading,
         error,
         addProduct,
@@ -114,8 +153,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteProduct,
         findByBarcode,
         recordSale,
+        createReturnRequest,
+        updateReturnRequest,
+        deleteReturnRequest,
         resetMockData,
         refresh,
+        pollReturns,
       }}
     >
       {children}

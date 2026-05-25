@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { formatMoney as fmt } from '../../lib/currency'
+import { formatDateTime } from '../../lib/datetime'
 
 export default function AdminSales() {
   const { sales } = useStore()
@@ -79,11 +80,11 @@ export default function AdminSales() {
                           <span className="sm:hidden">{shortId}</span>
                           <span className="hidden sm:inline">{s.id}</span>
                           <div className="text-[10px] text-slate-500 md:hidden mt-0.5">
-                            {new Date(s.date).toLocaleString()}
+                            {formatDateTime(s.date)}
                           </div>
                         </td>
                         <td className="px-3 sm:px-4 py-2 hidden md:table-cell whitespace-nowrap">
-                          {new Date(s.date).toLocaleString()}
+                          {formatDateTime(s.date)}
                         </td>
                         <td className="px-3 sm:px-4 py-2 hidden sm:table-cell">{s.cashierName}</td>
                         <td className="px-3 sm:px-4 py-2 text-right hidden sm:table-cell">
