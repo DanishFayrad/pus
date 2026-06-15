@@ -1,11 +1,40 @@
 import { useMemo, useEffect, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
+import { useConfirm } from '../../components/ConfirmProvider'
+import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
 import { formatDateTime, pktDayKey } from '../../lib/datetime'
 
 export default function AdminDashboard() {
-  const { products, sales, returnRequests, pollReturns, updateReturnRequest } = useStore()
+  const { products, sales, returnRequests, pollReturns, updateReturnRequest, deleteSale } = useStore()
+  const confirm = useConfirm()
   const [showToast, setShowToast] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const removeSale = async (id: string, label: string) => {
+    const ok = await confirm({
+      title: 'Delete sale',
+      message: (
+        <>
+          Delete sale <span className="font-semibold">{label}</span>?
+          This only removes the record — stock will not change.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
+    setDeletingId(id)
+    setDeleteError(null)
+    try {
+      await deleteSale(id)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const pendingReturns = useMemo(() => returnRequests.filter(r => r.status === 'pending'), [returnRequests])
 
@@ -116,6 +145,12 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {deleteError && (
+        <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">
+          {deleteError}
+        </div>
+      )}
+
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
         <div className="px-3 sm:px-4 py-3 border-b border-slate-200 dark:border-slate-700">
           <h2 className="font-semibold">Recent sales</h2>
@@ -132,11 +167,14 @@ export default function AdminDashboard() {
                   <th className="px-3 sm:px-4 py-2 font-medium">Items</th>
                   <th className="px-3 sm:px-4 py-2 font-medium text-right">Total</th>
                   <th className="px-3 sm:px-4 py-2 font-medium text-right hidden sm:table-cell">Profit</th>
+                  <th className="px-3 sm:px-4 py-2 font-medium text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {recent.map((s) => (
-                  <tr key={s.id}>
+                {recent.map((s) => {
+                  const isDeleting = deletingId === s.id
+                  return (
+                  <tr key={s.id} className={isDeleting ? 'opacity-50 transition-opacity' : ''}>
                     <td className="px-3 sm:px-4 py-2 whitespace-nowrap">{formatDateTime(s.date)}</td>
                     <td className="px-3 sm:px-4 py-2 hidden sm:table-cell">{s.cashierName}</td>
                     <td className="px-3 sm:px-4 py-2">
@@ -150,8 +188,25 @@ export default function AdminDashboard() {
                     >
                       {fmt(s.profit)}
                     </td>
+                    <td className="px-3 sm:px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={() => removeSale(s.id, `${fmt(s.total)} · ${formatDateTime(s.date)}`)}
+                        className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        {isDeleting ? (
+                          <>
+                            <Spinner /> Deleting…
+                          </>
+                        ) : (
+                          'Delete'
+                        )}
+                      </button>
+                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -1,11 +1,41 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
+import { useConfirm } from '../../components/ConfirmProvider'
+import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
 import { formatDateTime } from '../../lib/datetime'
 
 export default function AdminSales() {
-  const { sales } = useStore()
+  const { sales, deleteSale } = useStore()
+  const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const removeSale = async (id: string, label: string) => {
+    const ok = await confirm({
+      title: 'Delete sale',
+      message: (
+        <>
+          Delete sale <span className="font-semibold">{label}</span>?
+          This only removes the record — stock will not change.
+        </>
+      ),
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
+    setDeletingId(id)
+    setDeleteError(null)
+    try {
+      await deleteSale(id)
+      if (expanded === id) setExpanded(null)
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const totals = useMemo(() => {
     return sales.reduce(
@@ -52,6 +82,12 @@ export default function AdminSales() {
         </div>
       </div>
 
+      {deleteError && (
+        <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">
+          {deleteError}
+        </div>
+      )}
+
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
         {sales.length === 0 ? (
           <div className="p-6 text-center text-slate-500 text-sm">No sales recorded yet.</div>
@@ -73,9 +109,10 @@ export default function AdminSales() {
                 {sales.map((s) => {
                   const isOpen = expanded === s.id
                   const shortId = '…' + s.id.slice(-6)
+                  const isDeleting = deletingId === s.id
                   return (
                     <Fragment key={s.id}>
-                      <tr>
+                      <tr className={isDeleting ? 'opacity-50 transition-opacity' : ''}>
                         <td className="px-3 sm:px-4 py-2 font-mono text-xs">
                           <span className="sm:hidden">{shortId}</span>
                           <span className="hidden sm:inline">{s.id}</span>
@@ -98,13 +135,27 @@ export default function AdminSales() {
                         >
                           {fmt(s.profit)}
                         </td>
-                        <td className="px-3 sm:px-4 py-2 text-right">
+                        <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => setExpanded(isOpen ? null : s.id)}
-                            className="text-blue-600 hover:underline"
+                            className="text-blue-600 hover:underline mr-3"
                           >
                             {isOpen ? 'Hide' : 'View'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isDeleting}
+                            onClick={() => removeSale(s.id, `${fmt(s.total)} · ${formatDateTime(s.date)}`)}
+                            className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                          >
+                            {isDeleting ? (
+                              <>
+                                <Spinner /> Deleting…
+                              </>
+                            ) : (
+                              'Delete'
+                            )}
                           </button>
                         </td>
                       </tr>

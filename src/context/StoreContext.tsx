@@ -17,6 +17,7 @@ interface StoreContextValue {
     items: SaleItem[],
     cashier: { id: string; name: string },
   ) => Promise<Sale | null>
+  deleteSale: (id: string) => Promise<void>
   createReturnRequest: (productId: string, productName: string, quantity: number) => Promise<void>
   updateReturnRequest: (id: string, status: 'approved' | 'rejected') => Promise<void>
   deleteReturnRequest: (id: string) => Promise<void>
@@ -105,6 +106,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const deleteSale: StoreContextValue['deleteSale'] = async (id) => {
+    await api(`/api/sales/${id}`, { method: 'DELETE' })
+    await refresh()
+  }
+
   const createReturnRequest: StoreContextValue['createReturnRequest'] = async (productId, productName, quantity) => {
     await api('/api/returns', {
       method: 'POST',
@@ -153,6 +159,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteProduct,
         findByBarcode,
         recordSale,
+        deleteSale,
         createReturnRequest,
         updateReturnRequest,
         deleteReturnRequest,

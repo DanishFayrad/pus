@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
+import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
 import type { Product } from '../../types'
 
@@ -87,6 +88,8 @@ export default function AdminProducts() {
     }
   }
 
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   const remove = async (p: Product) => {
     const ok = await confirm({
       title: 'Delete product',
@@ -100,10 +103,13 @@ export default function AdminProducts() {
       tone: 'danger',
     })
     if (!ok) return
+    setDeletingId(p.id)
     try {
       await deleteProduct(p.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -229,7 +235,7 @@ export default function AdminProducts() {
             {products.map((p) => {
               const margin = p.price - p.cost
               return (
-                <tr key={p.id}>
+                <tr key={p.id} className={deletingId === p.id ? 'opacity-50 transition-opacity' : ''}>
                   <td className="px-3 sm:px-4 py-2 font-mono text-xs hidden sm:table-cell">{p.barcode}</td>
                   <td className="px-3 sm:px-4 py-2">
                     <div>{p.name}</div>
@@ -262,9 +268,16 @@ export default function AdminProducts() {
                     <button
                       type="button"
                       onClick={() => remove(p)}
-                      className="text-red-600 hover:underline"
+                      disabled={deletingId === p.id}
+                      className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
                     >
-                      Delete
+                      {deletingId === p.id ? (
+                        <>
+                          <Spinner /> Deleting…
+                        </>
+                      ) : (
+                        'Delete'
+                      )}
                     </button>
                   </td>
                 </tr>

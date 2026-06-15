@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
+import Spinner from '../../components/Spinner'
 import { formatDate, formatDateTime } from '../../lib/datetime'
 
 function timeAgo(iso: string) {
@@ -108,7 +109,7 @@ export default function AdminReturns() {
         ) : (
           <ul className="divide-y divide-slate-200 dark:divide-slate-700">
             {pending.map((r) => (
-              <li key={r.id} className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <li key={r.id} className={`p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${busyId === r.id ? 'opacity-60 transition-opacity' : ''}`}>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium">
                     <span className="text-amber-700 dark:text-amber-400">{r.quantity}×</span>{' '}
@@ -123,9 +124,15 @@ export default function AdminReturns() {
                     type="button"
                     disabled={busyId === r.id}
                     onClick={() => act(r.id, r.productName, r.quantity, 'approved')}
-                    className="px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
+                    className="px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white inline-flex items-center gap-1.5"
                   >
-                    {busyId === r.id ? '…' : 'Approve'}
+                    {busyId === r.id ? (
+                      <>
+                        <Spinner /> Working…
+                      </>
+                    ) : (
+                      'Approve'
+                    )}
                   </button>
                   <button
                     type="button"
@@ -143,9 +150,13 @@ export default function AdminReturns() {
                     title="Delete request"
                     aria-label="Delete request"
                   >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 5v6m4-6v6" />
-                    </svg>
+                    {busyId === r.id ? (
+                      <Spinner className="w-4 h-4" />
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 5v6m4-6v6" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </li>
@@ -199,9 +210,15 @@ export default function AdminReturns() {
                         type="button"
                         disabled={busyId === r.id}
                         onClick={() => del(r.id, r.productName, r.quantity)}
-                        className="text-red-600 hover:underline disabled:opacity-50"
+                        className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
                       >
-                        Delete
+                        {busyId === r.id ? (
+                          <>
+                            <Spinner /> Deleting…
+                          </>
+                        ) : (
+                          'Delete'
+                        )}
                       </button>
                     </td>
                   </tr>
