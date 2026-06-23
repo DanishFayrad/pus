@@ -21,6 +21,15 @@ export default function AdminProducts() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  const visibleProducts = (() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return products
+    return products.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.barcode.toLowerCase().includes(q),
+    )
+  })()
 
   const startNew = () => {
     setEditingId('new')
@@ -150,6 +159,26 @@ export default function AdminProducts() {
         </div>
       </div>
 
+      <div className="relative mx-auto w-full max-w-md">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search products by name or barcode…"
+          className="w-full px-3 py-2 pr-20 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          autoComplete="off"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-800 hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {editingId && (
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 space-y-3">
           <h2 className="font-semibold">
@@ -232,7 +261,7 @@ export default function AdminProducts() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-            {products.map((p) => {
+            {visibleProducts.map((p) => {
               const margin = p.price - p.cost
               return (
                 <tr key={p.id} className={deletingId === p.id ? 'opacity-50 transition-opacity' : ''}>
@@ -283,10 +312,12 @@ export default function AdminProducts() {
                 </tr>
               )
             })}
-            {products.length === 0 && (
+            {visibleProducts.length === 0 && (
               <tr>
                 <td colSpan={7} className="p-6 text-center text-slate-500">
-                  No products. Add one to get started.
+                  {search.trim()
+                    ? `No products match “${search.trim()}”`
+                    : 'No products. Add one to get started.'}
                 </td>
               </tr>
             )}

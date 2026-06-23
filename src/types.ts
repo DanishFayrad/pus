@@ -35,6 +35,10 @@ export interface Sale {
   total: number
   cost: number
   profit: number
+  paymentMethod?: 'cash' | 'credit'
+  customerName?: string
+  customerPhone?: string
+  creditStatus?: 'unpaid' | 'paid'
 }
 
 export interface ReturnRequest {

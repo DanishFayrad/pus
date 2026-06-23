@@ -18,6 +18,10 @@ export interface ISale {
   total: number
   cost: number
   profit: number
+  paymentMethod: 'cash' | 'credit'
+  customerName?: string
+  customerPhone?: string
+  creditStatus?: 'unpaid' | 'paid'
 }
 
 const SaleItemSchema = new Schema<ISaleItem>(
@@ -41,6 +45,10 @@ const SaleSchema = new Schema<ISale>(
     total: { type: Number, required: true },
     cost: { type: Number, required: true },
     profit: { type: Number, required: true },
+    paymentMethod: { type: String, enum: ['cash', 'credit'], default: 'cash', required: true },
+    customerName: { type: String, default: '' },
+    customerPhone: { type: String, default: '' },
+    creditStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   },
   { timestamps: true },
 )

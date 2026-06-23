@@ -39,6 +39,9 @@ export async function POST(req: Request) {
       }
     }
 
+    // Clear old cashiers to ensure only the cashiers in mockData are present
+    await User.deleteMany({ role: 'cashier' })
+
     let usersInserted = 0
     let usersMigrated = 0
     for (const u of mockUsers) {

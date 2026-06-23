@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
 @import "tailwindcss";
 
 /* Force the app to a single light theme (white + blue) regardless of OS preference. */
@@ -5,11 +7,16 @@
 
 :root {
   color-scheme: light;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 html,
 body {
-  background: #ffffff;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Hide horizontal scrollbar on the mobile nav while keeping scroll behaviour */

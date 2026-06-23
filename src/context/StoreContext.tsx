@@ -16,7 +16,13 @@ interface StoreContextValue {
   recordSale: (
     items: SaleItem[],
     cashier: { id: string; name: string },
+    extra?: {
+      paymentMethod?: 'cash' | 'credit'
+      customerName?: string
+      customerPhone?: string
+    },
   ) => Promise<Sale | null>
+  updateSale: (id: string, patch: Partial<Omit<Sale, 'id'>>) => Promise<void>
   deleteSale: (id: string) => Promise<void>
   createReturnRequest: (productId: string, productName: string, quantity: number) => Promise<void>
   updateReturnRequest: (id: string, status: 'approved' | 'rejected') => Promise<void>
@@ -89,13 +95,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return products.find((p) => p.barcode === trimmed)
   }
 
-  const recordSale: StoreContextValue['recordSale'] = async (items, cashier) => {
+  const recordSale: StoreContextValue['recordSale'] = async (items, cashier, extra) => {
     try {
       const data = await api<{ sale: Sale }>('/api/sales', {
         method: 'POST',
         body: JSON.stringify({
           cashier,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+          paymentMethod: extra?.paymentMethod || 'cash',
+          customerName: extra?.customerName || '',
+          customerPhone: extra?.customerPhone || '',
         }),
       })
       await refresh()
@@ -104,6 +113,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : 'Checkout failed')
       return null
     }
+  }
+
+  const updateSale: StoreContextValue['updateSale'] = async (id, patch) => {
+    await api(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+    await refresh()
   }
 
   const deleteSale: StoreContextValue['deleteSale'] = async (id) => {
@@ -159,6 +173,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteProduct,
         findByBarcode,
         recordSale,
+        updateSale,
         deleteSale,
         createReturnRequest,
         updateReturnRequest,

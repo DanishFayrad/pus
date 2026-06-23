@@ -65,6 +65,14 @@ export async function POST(req: Request) {
     const total = saleItems.reduce((s, i) => s + i.price * i.quantity, 0)
     const cost = saleItems.reduce((s, i) => s + i.cost * i.quantity, 0)
 
+    const paymentMethod = body.paymentMethod || 'cash'
+    const customerName = (body.customerName || '').trim()
+    const customerPhone = (body.customerPhone || '').trim()
+
+    if (paymentMethod === 'credit' && !customerName) {
+      return NextResponse.json({ error: 'Customer name is required for credit sales' }, { status: 400 })
+    }
+
     // Cashier identity is taken from the verified session, NOT from the request body.
     const sale = await Sale.create({
       date: new Date(),
@@ -74,6 +82,10 @@ export async function POST(req: Request) {
       total,
       cost,
       profit: total - cost,
+      paymentMethod,
+      customerName,
+      customerPhone,
+      creditStatus: paymentMethod === 'credit' ? 'unpaid' : undefined,
     })
 
     await Promise.all(
