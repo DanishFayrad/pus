@@ -1,12 +1,11 @@
-import { useMemo, useState, useEffect } from 'react'
-import BarcodeInput from '../components/BarcodeInput'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import CameraScanner from '../components/CameraScanner'
 import { useStore } from '../context/StoreContext'
 import { useAuth } from '../context/AuthContext'
 import { formatMoney } from '../lib/currency'
 import { formatDateTime } from '../lib/datetime'
+import { printReceipt } from '../lib/receipt'
 import type { Product, Sale, SaleItem } from '../types'
-
 interface CartLine {
   productId: string
   quantity: number
@@ -38,12 +37,20 @@ export default function PosPage() {
 
   const { returnRequests, createReturnRequest, pollReturns } = useStore()
 
+  // Suggestion Navigation State
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const inputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     const interval = setInterval(() => {
       pollReturns()
     }, 5000)
     return () => clearInterval(interval)
   }, [pollReturns])
+
+  useEffect(() => {
+    setActiveIndex(-1)
+  }, [query])
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -103,7 +110,7 @@ export default function PosPage() {
         (p) => p.name.toLowerCase().includes(q) || p.barcode.toLowerCase().includes(q),
       )
       if (matches.length > 1) {
-        flash('err', `${matches.length} matches — pick one from the list below`)
+        flash('err', `${matches.length} matches — pick one from the suggestion dropdown`)
         return false
       }
       flash('err', `No product found for "${raw}"`)
@@ -255,6 +262,62 @@ export default function PosPage() {
     flash('ok', `Sale complete: ${formatMoney(sale.total)}`)
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (filteredProducts.length > 0) {
+        setActiveIndex((prev) => (prev + 1) % filteredProducts.length)
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (filteredProducts.length > 0) {
+        setActiveIndex((prev) => (prev - 1 + filteredProducts.length) % filteredProducts.length)
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (activeIndex >= 0 && activeIndex < filteredProducts.length) {
+        const product = filteredProducts[activeIndex]
+        if (product.stock > 0) {
+          addByBarcode(product.barcode)
+          setQuery('')
+          setActiveIndex(-1)
+        } else {
+          flash('err', `${product.name} is out of stock`)
+        }
+      } else {
+        const raw = query.trim()
+        if (raw) {
+          const keep = addByBarcode(raw) === false
+          if (!keep) {
+            setQuery('')
+            setActiveIndex(-1)
+          }
+        }
+      }
+    } else if (e.key === 'Escape') {
+      setQuery('')
+      setActiveIndex(-1)
+    }
+  }
+
+  const shouldAutofocus = !productModalOpen && !returnModal && !scannerOpen && !checkoutModalOpen
+
+  useEffect(() => {
+    if (shouldAutofocus) {
+      inputRef.current?.focus()
+    }
+  }, [shouldAutofocus])
+
+  const handleBlur = () => {
+    if (shouldAutofocus) {
+      setTimeout(() => {
+        if (shouldAutofocus) {
+          inputRef.current?.focus()
+        }
+      }, 50)
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto p-3 sm:p-4 grid lg:grid-cols-[1fr_400px] gap-4 sm:gap-6">
       <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-100 dark:border-slate-700/50 p-4 sm:p-6 flex flex-col gap-6">
@@ -289,13 +352,81 @@ export default function PosPage() {
               </button>
             </div>
           </div>
-          <BarcodeInput
-            onSubmit={addByBarcode}
-            onChange={setQuery}
-            autoFocus={!productModalOpen && !returnModal && !scannerOpen && !checkoutModalOpen}
-            placeholder="Scan, or type a barcode / product name, then Enter"
-          />
+          <div className="relative flex gap-2.5">
+            <div className="relative flex-1">
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onBlur={handleBlur}
+                placeholder="Scan, or type a barcode / product name..."
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-base placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all duration-200"
+                inputMode="text"
+                autoComplete="off"
+              />
+              {query.trim() && filteredProducts.length > 0 && (
+                <div className="absolute left-0 right-0 mt-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 rounded-2xl shadow-xl max-h-64 overflow-y-auto z-40 divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {filteredProducts.map((p, idx) => {
+                    const isActive = idx === activeIndex
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          if (p.stock > 0) {
+                            addByBarcode(p.barcode)
+                            setQuery('')
+                          } else {
+                            flash('err', `${p.name} is out of stock`)
+                          }
+                        }}
+                        className={`px-4 py-3 flex items-center justify-between cursor-pointer transition ${
+                          isActive
+                            ? 'bg-blue-50/70 dark:bg-blue-950/45 text-blue-700 dark:text-blue-300'
+                            : 'hover:bg-slate-50/50 dark:hover:bg-slate-700/40'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-3 text-left">
+                          <div className="text-sm font-semibold truncate text-slate-800 dark:text-slate-100">{p.name}</div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{p.barcode}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatMoney(p.price)}</div>
+                          <div className="text-[10px] font-bold mt-1">
+                            {p.stock <= 0 ? (
+                              <span className="text-red-505 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded-md">Out of stock</span>
+                            ) : p.stock <= 5 ? (
+                              <span className="text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded-md">Low: {p.stock}</span>
+                            ) : (
+                              <span className="text-slate-550 bg-slate-50 dark:bg-slate-900/50 px-1.5 py-0.5 rounded-md">Stock: {p.stock}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const raw = query.trim()
+                if (raw) {
+                  const keep = addByBarcode(raw) === false
+                  if (!keep) {
+                    setQuery('')
+                    setActiveIndex(-1)
+                  }
+                }
+              }}
+              className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-sm hover:shadow transition-all duration-200 active:scale-[0.98] cursor-pointer shrink-0"
+            >
+              Add
+            </button>
+          </div>
           {message && (
+
             <div
               className={`mt-3 text-sm px-4 py-3 rounded-xl border flex items-center gap-2 animate-[slideDown_0.2s_ease-out] ${
                 message.kind === 'ok'
@@ -530,6 +661,16 @@ export default function PosPage() {
               <span>Total Paid:</span>
               <span className="font-bold text-slate-800 dark:text-slate-200">{formatMoney(lastSale.total)}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => printReceipt(lastSale)}
+              className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50/50 text-blue-750 hover:bg-blue-100/70 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Print Receipt (Perchi)
+            </button>
           </div>
         )}
         {returnRequests.filter(r => r.cashierId === user?.id).length > 0 && (
@@ -721,7 +862,7 @@ export default function PosPage() {
                       : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-350 dark:hover:bg-slate-800'
                   }`}
                 >
-                  📝 Credit (Udhar)
+                  📝 Credit
                 </button>
               </div>
             </div>

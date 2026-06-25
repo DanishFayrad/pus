@@ -66,7 +66,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <Link href="/admin" className={cls('/admin')}>Dashboard</Link>
           <Link href="/admin/products" className={cls('/admin/products')}>Products</Link>
           <Link href="/admin/sales" className={cls('/admin/sales')}>Sales</Link>
-          <Link href="/admin/credits" className={cls('/admin/credits')}>Udhar List</Link>
+          <Link href="/admin/credits" className={cls('/admin/credits')}>Credit Book</Link>
           <Link href="/admin/returns" className={`${cls('/admin/returns')} flex items-center justify-between gap-2`}>
             <span>Returns</span>
             {pendingReturns > 0 && (
@@ -82,7 +82,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return (
       <>
         <Link href="/pos" className={cls('/pos')}>POS</Link>
-        <Link href="/admin/credits" className={cls('/admin/credits')}>Udhar List</Link>
+        <Link href="/admin/credits" className={cls('/admin/credits')}>Credit Book</Link>
       </>
     )
   }

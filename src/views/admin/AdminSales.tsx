@@ -1,9 +1,10 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, useEffect } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
-import { formatDateTime } from '../../lib/datetime'
+import { formatDateTime, pktDayKey, formatDate } from '../../lib/datetime'
+import { printReceipt } from '../../lib/receipt'
 
 export default function AdminSales() {
   const { sales, deleteSale } = useStore()
@@ -11,6 +12,22 @@ export default function AdminSales() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Filters
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7' | 'last10' | 'last30' | 'custom'>('all')
+  const [customStart, setCustomStart] = useState(() => pktDayKey(new Date()))
+  const [customEnd, setCustomEnd] = useState(() => pktDayKey(new Date()))
+  const [activeTab, setActiveTab] = useState<'receipts' | 'products' | 'daily'>('receipts')
+
+  // Search & Pagination
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(15)
+
+  // Reset pagination when date filter, search query, or tab changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [dateFilter, searchQuery, activeTab])
 
   const removeSale = async (id: string, label: string) => {
     const ok = await confirm({
@@ -37,168 +54,620 @@ export default function AdminSales() {
     }
   }
 
+  // Helper to get YYYY-MM-DD for Pakistan time N days ago
+  const getPktDateString = (offsetDays = 0): string => {
+    const d = new Date()
+    d.setDate(d.getDate() - offsetDays)
+    return pktDayKey(d)
+  }
+
+  // Filter sales based on the active date filter
+  const filteredSales = useMemo(() => {
+    return sales.filter((s) => {
+      const saleDay = pktDayKey(s.date)
+      switch (dateFilter) {
+        case 'today':
+          return saleDay === getPktDateString(0)
+        case 'yesterday':
+          return saleDay === getPktDateString(1)
+        case 'last7':
+          return saleDay >= getPktDateString(6) && saleDay <= getPktDateString(0)
+        case 'last10':
+          return saleDay >= getPktDateString(9) && saleDay <= getPktDateString(0)
+        case 'last30':
+          return saleDay >= getPktDateString(29) && saleDay <= getPktDateString(0)
+        case 'custom':
+          if (customStart && customEnd) {
+            return saleDay >= customStart && saleDay <= customEnd
+          }
+          if (customStart) {
+            return saleDay >= customStart
+          }
+          if (customEnd) {
+            return saleDay <= customEnd
+          }
+          return true
+        default:
+          return true
+      }
+    })
+  }, [sales, dateFilter, customStart, customEnd])
+
+  // Filter sales based on search query
+  const searchedSales = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return filteredSales
+    return filteredSales.filter((s) => {
+      return (
+        s.id.toLowerCase().includes(q) ||
+        s.cashierName.toLowerCase().includes(q) ||
+        (s.customerName && s.customerName.toLowerCase().includes(q)) ||
+        (s.customerPhone && s.customerPhone.toLowerCase().includes(q)) ||
+        s.items.some((item) => item.name.toLowerCase().includes(q) || item.barcode.toLowerCase().includes(q))
+      )
+    })
+  }, [filteredSales, searchQuery])
+
+  // Calculate stats for searched/filtered sales
   const totals = useMemo(() => {
-    return sales.reduce(
+    return searchedSales.reduce(
       (acc, s) => {
         acc.revenue += s.total
         acc.cost += s.cost
         acc.profit += s.profit
+        acc.itemsSold += s.items.reduce((sum, item) => sum + item.quantity, 0)
         return acc
       },
-      { revenue: 0, cost: 0, profit: 0 },
+      { revenue: 0, cost: 0, profit: 0, itemsSold: 0 },
     )
-  }, [sales])
+  }, [searchedSales])
+
+  // Get products sold summary for the searched sales
+  const productSales = useMemo(() => {
+    const map = new Map<string, { productId: string; name: string; barcode: string; quantity: number; revenue: number; profit: number; price: number }>()
+    searchedSales.forEach((s) => {
+      s.items.forEach((item) => {
+        const existing = map.get(item.productId)
+        const revenue = item.price * item.quantity
+        const profit = (item.price - item.cost) * item.quantity
+        if (existing) {
+          existing.quantity += item.quantity
+          existing.revenue += revenue
+          existing.profit += profit
+        } else {
+          map.set(item.productId, {
+            productId: item.productId,
+            name: item.name,
+            barcode: item.barcode,
+            quantity: item.quantity,
+            revenue,
+            profit,
+            price: item.price,
+          })
+        }
+      })
+    })
+    return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity)
+  }, [searchedSales])
+
+  // Group sales by day based on searched sales
+  const dailySales = useMemo(() => {
+    const map = new Map<string, { date: string; revenue: number; profit: number; itemsSold: number; txCount: number }>()
+    searchedSales.forEach((s) => {
+      const day = pktDayKey(s.date)
+      const existing = map.get(day)
+      const qty = s.items.reduce((sum, item) => sum + item.quantity, 0)
+      if (existing) {
+        existing.revenue += s.total
+        existing.profit += s.profit
+        existing.itemsSold += qty
+        existing.txCount += 1
+      } else {
+        map.set(day, {
+          date: day,
+          revenue: s.total,
+          profit: s.profit,
+          itemsSold: qty,
+          txCount: 1,
+        })
+      }
+    })
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date))
+  }, [searchedSales])
+
+  // Pagination bounds calculations
+  const activeListLength = useMemo(() => {
+    if (activeTab === 'receipts') return searchedSales.length
+    if (activeTab === 'products') return productSales.length
+    return dailySales.length
+  }, [activeTab, searchedSales.length, productSales.length, dailySales.length])
+
+  const totalPages = Math.max(1, Math.ceil(activeListLength / pageSize))
+
+  const paginatedSales = useMemo(() => {
+    return searchedSales.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  }, [searchedSales, currentPage, pageSize])
+
+  const paginatedProducts = useMemo(() => {
+    return productSales.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  }, [productSales, currentPage, pageSize])
+
+  const paginatedDaily = useMemo(() => {
+    return dailySales.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  }, [dailySales, currentPage, pageSize])
+
+  const pageNumbers = useMemo(() => {
+    const pages: (number | string)[] = []
+    const maxVisible = 5
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i)
+    } else {
+      pages.push(1)
+      let start = Math.max(2, currentPage - 1)
+      let end = Math.min(totalPages - 1, currentPage + 1)
+
+      if (currentPage <= 2) {
+        end = 4
+      } else if (currentPage >= totalPages - 1) {
+        start = totalPages - 3
+      }
+
+      if (start > 2) pages.push('...')
+      for (let i = start; i <= end; i++) pages.push(i)
+      if (end < totalPages - 1) pages.push('...')
+      pages.push(totalPages)
+    }
+    return pages
+  }, [totalPages, currentPage])
 
   return (
-    <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4">
-      <h1 className="text-xl sm:text-2xl font-bold">Sales history</h1>
+    <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white">Sales & Records</h1>
+      </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-        <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
-          <div className="text-xs sm:text-sm text-slate-500">Total revenue</div>
-          <div className="text-lg sm:text-2xl font-bold mt-1 truncate">{fmt(totals.revenue)}</div>
+      {/* Date Filters Panel */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs space-y-4">
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Date Range Filter</h2>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: 'all', label: 'All Time' },
+                { id: 'today', label: 'Today' },
+                { id: 'yesterday', label: 'Yesterday' },
+                { id: 'last7', label: 'Last 7 Days' },
+                { id: 'last10', label: 'Last 10 Days' },
+                { id: 'last30', label: 'Last 30 Days' },
+                { id: 'custom', label: 'Custom Range' },
+              ] as const
+            ).map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => {
+                  setDateFilter(filter.id)
+                  if (filter.id === 'custom' && (!customStart || !customEnd)) {
+                    const todayStr = pktDayKey(new Date())
+                    setCustomStart(todayStr)
+                    setCustomEnd(todayStr)
+                  }
+                }}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition duration-150 cursor-pointer ${
+                  dateFilter === filter.id
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-50 text-slate-655 hover:bg-slate-100 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-900'
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:p-4">
-          <div className="text-xs sm:text-sm text-slate-500">Total cost</div>
-          <div className="text-lg sm:text-2xl font-bold mt-1 truncate">{fmt(totals.cost)}</div>
+
+        {dateFilter === 'custom' && (
+          <div className="flex flex-wrap gap-3 items-end pt-2 border-t border-dashed border-slate-100 dark:border-slate-700/50 animate-[fadeIn_0.15s_ease-out]">
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-455 dark:text-slate-400">Start Date</label>
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-455 dark:text-slate-400">End Date</label>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+            {(customStart || customEnd) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const todayStr = pktDayKey(new Date())
+                  setCustomStart(todayStr)
+                  setCustomEnd(todayStr)
+                }}
+                className="px-3 py-2 text-xs font-semibold text-red-500 hover:text-red-655 hover:underline transition cursor-pointer"
+              >
+                Reset Custom Dates
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Dynamic Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">Revenue</div>
+          <div className="text-lg sm:text-2xl font-black mt-1 truncate text-slate-800 dark:text-white">{fmt(totals.revenue)}</div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">Cost</div>
+          <div className="text-lg sm:text-2xl font-black mt-1 truncate text-slate-800 dark:text-white">{fmt(totals.cost)}</div>
         </div>
         <div
-          className={`bg-white dark:bg-slate-800 rounded-lg border p-3 sm:p-4 col-span-2 sm:col-span-1 ${
+          className={`bg-white dark:bg-slate-800 rounded-2xl border p-4 shadow-2xs ${
             totals.profit >= 0
-              ? 'border-emerald-200 dark:border-emerald-900'
-              : 'border-red-200 dark:border-red-900'
+              ? 'border-emerald-150 dark:border-emerald-950/30'
+              : 'border-red-150 dark:border-red-950/30'
           }`}
         >
-          <div className="text-xs sm:text-sm text-slate-500">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
             {totals.profit >= 0 ? 'Profit' : 'Loss'}
           </div>
           <div
-            className={`text-lg sm:text-2xl font-bold mt-1 truncate ${
-              totals.profit >= 0 ? 'text-emerald-600' : 'text-red-600'
+            className={`text-lg sm:text-2xl font-black mt-1 truncate ${
+              totals.profit >= 0 ? 'text-emerald-600 dark:text-emerald-450' : 'text-red-650 dark:text-red-400'
             }`}
           >
-            {fmt(Math.abs(totals.profit))}
+            {fmt(totals.profit)}
           </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs">
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">Items Sold</div>
+          <div className="text-lg sm:text-2xl font-black mt-1 truncate text-slate-800 dark:text-white">{totals.itemsSold}</div>
         </div>
       </div>
 
       {deleteError && (
-        <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">
+        <div className="text-sm text-red-600 bg-red-50 dark:bg-red-955/40 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
           {deleteError}
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
-        {sales.length === 0 ? (
-          <div className="p-6 text-center text-slate-500 text-sm">No sales recorded yet.</div>
+      {/* Tabs and Search Bar */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-200 dark:border-slate-700/80 pb-2">
+        <div className="flex flex-wrap">
+          {(
+            [
+              { id: 'receipts', label: 'Receipts History' },
+              { id: 'products', label: 'Products Sold' },
+              { id: 'daily', label: 'Daily Summary' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-bold border-b-2 transition duration-150 cursor-pointer -mb-[10px] ${
+                activeTab === tab.id
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-605 dark:hover:text-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative w-full md:w-80">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by ID, cashier, customer, product..."
+            className="w-full pl-9 pr-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-2xs placeholder:text-slate-400 text-slate-800 dark:text-slate-100"
+          />
+          <svg
+            className="w-4 h-4 text-slate-400 absolute left-3 top-2.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Main Records Container */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs overflow-hidden">
+        {activeListLength === 0 ? (
+          <div className="p-10 text-center text-slate-500 text-sm">No records found for the selected filters.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900">
-                <tr>
-                  <th className="px-3 sm:px-4 py-2 font-medium">Receipt</th>
-                  <th className="px-3 sm:px-4 py-2 font-medium hidden md:table-cell">Date</th>
-                  <th className="px-3 sm:px-4 py-2 font-medium hidden sm:table-cell">Cashier</th>
-                  <th className="px-3 sm:px-4 py-2 font-medium text-right hidden sm:table-cell">Items</th>
-                  <th className="px-3 sm:px-4 py-2 font-medium text-right">Total</th>
-                  <th className="px-3 sm:px-4 py-2 font-medium text-right hidden sm:table-cell">Profit</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {sales.map((s) => {
-                  const isOpen = expanded === s.id
-                  const shortId = '…' + s.id.slice(-6)
-                  const isDeleting = deletingId === s.id
-                  return (
-                    <Fragment key={s.id}>
-                      <tr className={isDeleting ? 'opacity-50 transition-opacity' : ''}>
-                        <td className="px-3 sm:px-4 py-2 font-mono text-xs">
-                          <span className="sm:hidden">{shortId}</span>
-                          <span className="hidden sm:inline">{s.id}</span>
-                          <div className="text-[10px] text-slate-500 md:hidden mt-0.5">
-                            {formatDateTime(s.date)}
-                          </div>
-                        </td>
-                        <td className="px-3 sm:px-4 py-2 hidden md:table-cell whitespace-nowrap">
-                          {formatDateTime(s.date)}
-                        </td>
-                        <td className="px-3 sm:px-4 py-2 hidden sm:table-cell">{s.cashierName}</td>
-                        <td className="px-3 sm:px-4 py-2 text-right hidden sm:table-cell">
-                          {s.items.reduce((a, i) => a + i.quantity, 0)}
-                        </td>
-                        <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">{fmt(s.total)}</td>
+          <>
+            {activeTab === 'receipts' && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-450 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 font-bold uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Receipt</th>
+                      <th className="px-4 py-3 font-semibold hidden md:table-cell">Date</th>
+                      <th className="px-4 py-3 font-semibold hidden sm:table-cell">Cashier</th>
+                      <th className="px-4 py-3 font-semibold text-right hidden sm:table-cell">Items</th>
+                      <th className="px-4 py-3 font-semibold text-right">Total</th>
+                      <th className="px-4 py-3 font-semibold text-right hidden sm:table-cell">Profit</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {paginatedSales.map((s) => {
+                      const isOpen = expanded === s.id
+                      const shortId = '…' + s.id.slice(-6)
+                      const isDeleting = deletingId === s.id
+                      return (
+                        <Fragment key={s.id}>
+                          <tr className={`transition hover:bg-slate-50/40 dark:hover:bg-slate-900/10 ${isDeleting ? 'opacity-50' : ''}`}>
+                            <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
+                              <span className="sm:hidden">{shortId}</span>
+                              <span className="hidden sm:inline">{s.id}</span>
+                              <div className="text-[10px] text-slate-400 md:hidden mt-0.5">
+                                {formatDateTime(s.date)}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 hidden md:table-cell whitespace-nowrap text-slate-600 dark:text-slate-350">
+                              {formatDateTime(s.date)}
+                            </td>
+                            <td className="px-4 py-3 hidden sm:table-cell text-slate-600 dark:text-slate-350">{s.cashierName}</td>
+                            <td className="px-4 py-3 text-right hidden sm:table-cell text-slate-600 dark:text-slate-350">
+                              {s.items.reduce((a, i) => a + i.quantity, 0)}
+                            </td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap font-bold text-slate-800 dark:text-white">{fmt(s.total)}</td>
+                            <td
+                              className={`px-4 py-3 text-right whitespace-nowrap hidden sm:table-cell font-semibold ${
+                                s.profit >= 0 ? 'text-emerald-600 dark:text-emerald-450' : 'text-red-655 dark:text-red-400'
+                              }`}
+                            >
+                              {fmt(s.profit)}
+                            </td>
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => setExpanded(isOpen ? null : s.id)}
+                                className="text-blue-600 hover:text-blue-750 dark:text-blue-450 dark:hover:text-blue-400 font-semibold text-xs hover:underline mr-4 cursor-pointer"
+                              >
+                                {isOpen ? 'Hide' : 'View'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isDeleting}
+                                onClick={() => removeSale(s.id, `${fmt(s.total)} · ${formatDateTime(s.date)}`)}
+                                className="text-red-600 hover:text-red-750 dark:text-red-450 dark:hover:text-red-455 font-semibold text-xs hover:underline disabled:opacity-50 inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                {isDeleting ? (
+                                  <>
+                                    <Spinner /> Deleting…
+                                  </>
+                                ) : (
+                                  'Delete'
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr key={s.id + '-d'} className="bg-slate-50/50 dark:bg-slate-900/30 animate-[fadeIn_0.15s_ease-out]">
+                              <td colSpan={7} className="px-4 py-3.5">
+                                <div className="flex justify-between items-center mb-3">
+                                  <span className="text-xs font-bold text-slate-505 dark:text-slate-400 uppercase tracking-wider">Receipt Items Breakdown</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => printReceipt(s)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-blue-200 bg-blue-50/50 text-blue-700 hover:bg-blue-100/70 dark:border-blue-900 dark:bg-blue-955/20 dark:text-blue-300 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs"
+                                  >
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                    </svg>
+                                    Print Receipt (Perchi)
+                                  </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs text-left">
+                                    <thead className="text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider">
+                                      <tr className="border-b border-slate-100 dark:border-slate-700/50">
+                                        <th className="py-2 font-medium">Product</th>
+                                        <th className="py-2 font-medium hidden sm:table-cell">Barcode</th>
+                                        <th className="py-2 font-medium text-right">Qty</th>
+                                        <th className="py-2 font-medium text-right">Price</th>
+                                        <th className="py-2 font-medium text-right">Line</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100/50 dark:divide-slate-800/40">
+                                      {s.items.map((i) => (
+                                        <tr key={i.productId}>
+                                          <td className="py-2 text-slate-700 dark:text-slate-350">{i.name}</td>
+                                          <td className="py-2 font-mono text-slate-500 dark:text-slate-400 hidden sm:table-cell">{i.barcode}</td>
+                                          <td className="py-2 text-right text-slate-700 dark:text-slate-350">{i.quantity}</td>
+                                          <td className="py-2 text-right text-slate-655 dark:text-slate-350 whitespace-nowrap">{fmt(i.price)}</td>
+                                          <td className="py-2 text-right text-slate-900 dark:text-white font-semibold whitespace-nowrap">
+                                            {fmt(i.price * i.quantity)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeTab === 'products' && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-450 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 font-bold uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Product Name</th>
+                      <th className="px-4 py-3 font-semibold hidden sm:table-cell">Barcode</th>
+                      <th className="px-4 py-3 font-semibold text-right">Quantity Sold</th>
+                      <th className="px-4 py-3 font-semibold text-right">Price (Current)</th>
+                      <th className="px-4 py-3 font-semibold text-right">Total Revenue</th>
+                      <th className="px-4 py-3 font-semibold text-right">Total Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {paginatedProducts.map((p) => (
+                      <tr key={p.productId} className="transition hover:bg-slate-50/40 dark:hover:bg-slate-900/10">
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{p.name}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 hidden sm:table-cell">{p.barcode}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-300">{p.quantity}</td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-350">{fmt(p.price)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-800 dark:text-white">{fmt(p.revenue)}</td>
                         <td
-                          className={`px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden sm:table-cell ${
-                            s.profit >= 0 ? 'text-emerald-600' : 'text-red-600'
+                          className={`px-4 py-3 text-right font-bold ${
+                            p.profit >= 0 ? 'text-emerald-600 dark:text-emerald-450' : 'text-red-655 dark:text-red-400'
                           }`}
                         >
-                          {fmt(s.profit)}
-                        </td>
-                        <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setExpanded(isOpen ? null : s.id)}
-                            className="text-blue-600 hover:underline mr-3"
-                          >
-                            {isOpen ? 'Hide' : 'View'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isDeleting}
-                            onClick={() => removeSale(s.id, `${fmt(s.total)} · ${formatDateTime(s.date)}`)}
-                            className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
-                          >
-                            {isDeleting ? (
-                              <>
-                                <Spinner /> Deleting…
-                              </>
-                            ) : (
-                              'Delete'
-                            )}
-                          </button>
+                          {fmt(p.profit)}
                         </td>
                       </tr>
-                      {isOpen && (
-                        <tr key={s.id + '-d'} className="bg-slate-50 dark:bg-slate-900/40">
-                          <td colSpan={7} className="px-3 sm:px-4 py-3">
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs">
-                                <thead className="text-slate-500">
-                                  <tr>
-                                    <th className="text-left py-1 font-medium">Product</th>
-                                    <th className="text-left py-1 font-medium hidden sm:table-cell">Barcode</th>
-                                    <th className="text-right py-1 font-medium">Qty</th>
-                                    <th className="text-right py-1 font-medium">Price</th>
-                                    <th className="text-right py-1 font-medium">Line</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {s.items.map((i) => (
-                                    <tr key={i.productId}>
-                                      <td className="py-1">{i.name}</td>
-                                      <td className="py-1 font-mono hidden sm:table-cell">{i.barcode}</td>
-                                      <td className="py-1 text-right">{i.quantity}</td>
-                                      <td className="py-1 text-right whitespace-nowrap">{fmt(i.price)}</td>
-                                      <td className="py-1 text-right whitespace-nowrap">
-                                        {fmt(i.price * i.quantity)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeTab === 'daily' && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-450 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 font-bold uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Date</th>
+                      <th className="px-4 py-3 font-semibold text-right">Transactions</th>
+                      <th className="px-4 py-3 font-semibold text-right">Items Sold</th>
+                      <th className="px-4 py-3 font-semibold text-right">Revenue</th>
+                      <th className="px-4 py-3 font-semibold text-right">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {paginatedDaily.map((d) => (
+                      <tr key={d.date} className="transition hover:bg-slate-50/40 dark:hover:bg-slate-900/10">
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {formatDate(d.date)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-350">{d.txCount}</td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-350">{d.itemsSold}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-800 dark:text-white">{fmt(d.revenue)}</td>
+                        <td
+                          className={`px-4 py-3 text-right font-bold ${
+                            d.profit >= 0 ? 'text-emerald-600 dark:text-emerald-450' : 'text-red-655 dark:text-red-400'
+                          }`}
+                        >
+                          {fmt(d.profit)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="px-4 py-3.5 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-semibold order-2 sm:order-1">
+                  <span>Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 font-bold"
+                  >
+                    <option value={10}>10</option>
+                    <option value={15}>15</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span>entries</span>
+                  <span className="mx-1 text-slate-300 dark:text-slate-700">|</span>
+                  <span>
+                    Showing {Math.min(activeListLength, (currentPage - 1) * pageSize + 1)} to{' '}
+                    {Math.min(activeListLength, currentPage * pageSize)} of {activeListLength} entries
+                  </span>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-1.5 order-1 sm:order-2">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 transition cursor-pointer"
+                  >
+                    Prev
+                  </button>
+
+                  {pageNumbers.map((num, idx) => {
+                    if (num === '...') {
+                      return (
+                        <span
+                          key={`dots-${idx}`}
+                          className="px-2 py-1.5 text-xs font-semibold text-slate-400 dark:text-slate-500"
+                        >
+                          ...
+                        </span>
+                      )
+                    }
+                    const isActive = num === currentPage
+                    return (
+                      <button
+                        key={`page-${num}`}
+                        type="button"
+                        onClick={() => setCurrentPage(Number(num))}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition cursor-pointer ${
+                          isActive
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                            : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-655 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    )
+                  })}
+
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 transition cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   )
 }
+
+
+
+
+
