@@ -5,6 +5,18 @@ import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
 import { formatDateTime } from '../../lib/datetime'
 import { useAuth } from '../../context/AuthContext'
+import type { Sale } from '../../types'
+
+interface CustomerGroup {
+  id: string
+  customerName: string
+  customerPhone: string
+  sales: Sale[]
+  totalUnpaid: number
+  totalPaid: number
+  total: number
+  lastDate: string
+}
 
 export default function AdminCredits() {
   const { sales, updateSale, deleteSale } = useStore()
@@ -12,6 +24,7 @@ export default function AdminCredits() {
   const isAdmin = user?.role === 'admin'
   const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -51,25 +64,89 @@ export default function AdminCredits() {
     }
   }, [creditSales])
 
-  // Filtered sales list
-  const filteredSales = useMemo(() => {
+  // Group credit sales by customer (matching by phone number first, then by lowercase trimmed name)
+  const customerGroups = useMemo(() => {
+    const groupsMap = new Map<string, Sale[]>()
+    
+    creditSales.forEach(s => {
+      const phone = s.customerPhone?.trim()
+      const name = s.customerName?.trim().toLowerCase()
+      
+      let key = ''
+      if (phone) {
+        key = `phone:${phone}`
+      } else if (name) {
+        key = `name:${name}`
+      } else {
+        key = 'unknown'
+      }
+      
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, [])
+      }
+      groupsMap.get(key)!.push(s)
+    })
+    
+    const list: CustomerGroup[] = []
+    
+    groupsMap.forEach((groupSales, key) => {
+      // Sort sales by date descending to get the latest customer name/phone and latest transaction date
+      const sortedSales = [...groupSales].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      
+      const latestSale = sortedSales[0]
+      const customerName = latestSale.customerName || 'N/A'
+      const customerPhone = latestSale.customerPhone || ''
+      
+      let totalUnpaid = 0
+      let totalPaid = 0
+      
+      groupSales.forEach(s => {
+        const isPaid = s.creditStatus === 'paid'
+        if (isPaid) {
+          totalPaid += s.total
+        } else {
+          totalUnpaid += s.total
+        }
+      })
+      
+      list.push({
+        id: key,
+        customerName,
+        customerPhone,
+        sales: sortedSales,
+        totalUnpaid,
+        totalPaid,
+        total: totalUnpaid + totalPaid,
+        lastDate: latestSale.date
+      })
+    })
+    
+    // Sort customer list by last transaction date descending
+    return list.sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime())
+  }, [creditSales])
+
+  // Filtered customer groups
+  const filteredGroups = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
-    return creditSales.filter(s => {
+    return customerGroups.filter(g => {
       const matchesSearch = 
         !q || 
-        (s.customerName || '').toLowerCase().includes(q) ||
-        (s.customerPhone || '').includes(q) ||
-        (s.cashierName || '').toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q)
-
-      const matchesStatus = 
-        statusFilter === 'all' || 
-        (statusFilter === 'unpaid' && s.creditStatus !== 'paid') ||
-        (statusFilter === 'paid' && s.creditStatus === 'paid')
-
+        g.customerName.toLowerCase().includes(q) ||
+        g.customerPhone.includes(q) ||
+        g.sales.some(s => s.id.toLowerCase().includes(q) || s.cashierName.toLowerCase().includes(q))
+      
+      let matchesStatus = false
+      if (statusFilter === 'all') {
+        matchesStatus = true
+      } else if (statusFilter === 'unpaid') {
+        matchesStatus = g.totalUnpaid > 0
+      } else if (statusFilter === 'paid') {
+        matchesStatus = g.totalPaid > 0 && g.totalUnpaid === 0
+      }
+      
       return matchesSearch && matchesStatus
     })
-  }, [creditSales, searchQuery, statusFilter])
+  }, [customerGroups, searchQuery, statusFilter])
 
   // Mark a credit sale as paid
   const togglePaidStatus = async (id: string, currentStatus: string | undefined, customer: string | undefined, amount: number) => {
@@ -104,6 +181,34 @@ export default function AdminCredits() {
     }
   }
 
+  // Settle all unpaid credits for a customer group
+  const settleAllCredits = async (group: CustomerGroup) => {
+    const ok = await confirm({
+      title: 'Settle All Balance',
+      message: (
+        <>
+          Confirm receiving the entire outstanding balance of <span className="font-semibold text-emerald-600">{fmt(group.totalUnpaid)}</span> from <span className="font-semibold">{group.customerName}</span>? This will mark all their unpaid bills as settled.
+        </>
+      ),
+      confirmLabel: 'Yes, Settle All',
+      tone: 'success',
+    })
+    if (!ok) return
+
+    setUpdatingId(group.id)
+    setUpdateError(null)
+    try {
+      const unpaidSales = group.sales.filter(s => s.creditStatus !== 'paid')
+      for (const s of unpaidSales) {
+        await updateSale(s.id, { creditStatus: 'paid' })
+      }
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : 'Action failed')
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
   // Delete a credit sale record (admin only)
   const removeSale = async (id: string, label: string) => {
     const ok = await confirm({
@@ -123,7 +228,7 @@ export default function AdminCredits() {
     setUpdateError(null)
     try {
       await deleteSale(id)
-      if (expanded === id) setExpanded(null)
+      if (expandedReceipt === id) setExpandedReceipt(null)
     } catch (e) {
       setUpdateError(e instanceof Error ? e.message : 'Delete failed')
     } finally {
@@ -142,7 +247,7 @@ export default function AdminCredits() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-red-150 dark:border-red-950/40 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-red-150 dark:border-red-955/40 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-red-500/80">Total Outstanding Credit</span>
             <span className="p-1.5 rounded-lg bg-red-50 text-red-650 dark:bg-red-950/20 dark:text-red-400">
@@ -156,7 +261,7 @@ export default function AdminCredits() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-150 dark:border-emerald-950/40 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-emerald-150 dark:border-emerald-955/40 p-4 sm:p-5 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-emerald-500/80">Total Recovered (Paid)</span>
             <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-650 dark:bg-emerald-950/20 dark:text-emerald-400">
@@ -186,7 +291,7 @@ export default function AdminCredits() {
       </div>
 
       {updateError && (
-        <div className="text-sm font-medium text-red-650 bg-red-50 dark:bg-red-950/20 border border-red-200/50 rounded-xl px-4 py-3 shadow-2xs">
+        <div className="text-sm font-medium text-red-655 bg-red-50 dark:bg-red-950/20 border border-red-200/50 rounded-xl px-4 py-3 shadow-2xs">
           ⚠️ {updateError}
         </div>
       )}
@@ -246,7 +351,7 @@ export default function AdminCredits() {
         </div>
 
         {/* Ledger Table */}
-        {filteredSales.length === 0 ? (
+        {filteredGroups.length === 0 ? (
           <div className="text-sm text-slate-550 py-12 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/20">
             No credit records match search and filters.
           </div>
@@ -255,148 +360,214 @@ export default function AdminCredits() {
             <table className="w-full text-sm">
               <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50">
                 <tr>
-                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider">Receipt</th>
                   <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider">Customer</th>
                   <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider hidden sm:table-cell">Phone</th>
-                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider hidden md:table-cell">Date</th>
-                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider hidden sm:table-cell">Cashier</th>
-                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider text-right">Amount</th>
                   <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider text-center">Status</th>
+                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider text-right">Outstanding</th>
+                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider text-right hidden sm:table-cell">Recovered</th>
                   <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {filteredSales.map((s) => {
-                  const isOpen = expanded === s.id
-                  const isUpdating = updatingId === s.id
-                  const isPaid = s.creditStatus === 'paid'
+                {filteredGroups.map((g) => {
+                  const isOpen = expanded === g.id
+                  const isUpdating = updatingId === g.id
+                  const hasUnpaid = g.totalUnpaid > 0
+                  
                   return (
-                    <Fragment key={s.id}>
+                    <Fragment key={g.id}>
                       <tr className={`${isUpdating ? 'opacity-50' : ''} hover:bg-slate-50/40 dark:hover:bg-slate-800/10 transition`}>
-                        {/* Receipt ID */}
-                        <td className="px-4 py-3.5 font-mono text-xs text-slate-800 dark:text-slate-200">
-                          <span className="sm:hidden">…{s.id.slice(-6)}</span>
-                          <span className="hidden sm:inline">{s.id}</span>
-                          <div className="text-[10px] text-slate-500 md:hidden mt-0.5">
-                            {formatDateTime(s.date)}
+                        {/* Customer Name */}
+                        <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-slate-100">
+                          {g.customerName}
+                          <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                            Last Active: {formatDateTime(g.lastDate)}
                           </div>
                         </td>
 
-                        {/* Customer */}
-                        <td className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-100">
-                          {s.customerName || 'N/A'}
-                        </td>
-
                         {/* Phone */}
-                        <td className="px-4 py-3.5 text-slate-500 dark:text-slate-350 hidden sm:table-cell whitespace-nowrap">
-                          {s.customerPhone || <span className="text-xs text-slate-350 dark:text-slate-600">—</span>}
+                        <td className="px-4 py-3.5 text-slate-500 dark:text-slate-350 hidden sm:table-cell whitespace-nowrap font-medium">
+                          {g.customerPhone || <span className="text-xs text-slate-350 dark:text-slate-650">—</span>}
                         </td>
 
-                        {/* Date */}
-                        <td className="px-4 py-3.5 text-slate-600 dark:text-slate-350 hidden md:table-cell whitespace-nowrap">
-                          {formatDateTime(s.date)}
-                        </td>
-
-                        {/* Cashier */}
-                        <td className="px-4 py-3.5 text-slate-650 dark:text-slate-350 hidden sm:table-cell">
-                          {s.cashierName}
-                        </td>
-
-                        {/* Amount */}
-                        <td className="px-4 py-3.5 text-right font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                          {fmt(s.total)}
-                        </td>
-
-                        {/* Status */}
+                        {/* Status Label */}
                         <td className="px-4 py-3.5 text-center whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            isPaid
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
-                              : 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400'
+                            hasUnpaid
+                              ? 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
                           }`}>
-                            {isPaid ? '🟢 Settled' : '🔴 Unpaid'}
+                            {hasUnpaid ? '🔴 Unpaid' : '🟢 Settled'}
                           </span>
+                        </td>
+
+                        {/* Outstanding Amount */}
+                        <td className="px-4 py-3.5 text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
+                          {fmt(g.totalUnpaid)}
+                        </td>
+
+                        {/* Recovered Amount */}
+                        <td className="px-4 py-3.5 text-right font-semibold text-emerald-600 dark:text-emerald-400 hidden sm:table-cell whitespace-nowrap">
+                          {fmt(g.totalPaid)}
                         </td>
 
                         {/* Actions */}
                         <td className="px-4 py-3.5 text-right whitespace-nowrap gap-2">
                           <button
                             type="button"
-                            onClick={() => setExpanded(isOpen ? null : s.id)}
+                            onClick={() => setExpanded(isOpen ? null : g.id)}
                             className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline mr-4 cursor-pointer"
                           >
-                            {isOpen ? 'Hide items' : 'View items'}
+                            {isOpen ? 'Hide Ledger' : `View Ledger (${g.sales.length})`}
                           </button>
                           
-                          <button
-                            type="button"
-                            disabled={isUpdating}
-                            onClick={() => togglePaidStatus(s.id, s.creditStatus, s.customerName, s.total)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition duration-150 cursor-pointer inline-flex items-center gap-1 ${
-                              isPaid
-                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs hover:shadow-xs'
-                            }`}
-                          >
-                            {isUpdating ? (
-                              <>
-                                <Spinner /> Setting…
-                              </>
-                            ) : isPaid ? (
-                              'Mark Unpaid'
-                            ) : (
-                              'Mark as Paid'
-                            )}
-                          </button>
-
-                          {isAdmin && (
+                          {hasUnpaid && (
                             <button
                               type="button"
-                              disabled={isUpdating || deletingId === s.id}
-                              onClick={() => removeSale(s.id, `${s.customerName || 'N/A'} (${fmt(s.total)})`)}
-                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-50 hover:bg-red-100 text-red-750 dark:bg-red-950/20 dark:text-red-400 transition duration-150 cursor-pointer inline-flex items-center gap-1 ml-2"
+                              disabled={updatingId !== null}
+                              onClick={() => settleAllCredits(g)}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs hover:shadow-xs transition duration-150 cursor-pointer inline-flex items-center gap-1"
                             >
-                              {deletingId === s.id ? (
+                              {updatingId === g.id ? (
                                 <>
-                                  <Spinner /> Deleting…
+                                  <Spinner /> Settling…
                                 </>
                               ) : (
-                                'Delete'
+                                'Settle All Balance'
                               )}
                             </button>
                           )}
                         </td>
                       </tr>
 
-                      {/* Items details nested list */}
+                      {/* Customer Detailed Ledger (Receipts List) */}
                       {isOpen && (
-                        <tr className="bg-slate-50/50 dark:bg-slate-900/30">
-                          <td colSpan={8} className="px-4 py-3 border-t border-b border-slate-100 dark:border-slate-800">
-                            <div className="overflow-x-auto max-w-full">
-                              <table className="w-full text-xs">
-                                <thead className="text-slate-500">
-                                  <tr className="border-b border-slate-150/40 dark:border-slate-800/40">
-                                    <th className="text-left py-1.5 font-semibold">Product Name</th>
-                                    <th className="text-left py-1.5 font-semibold hidden sm:table-cell">Barcode</th>
-                                    <th className="text-right py-1.5 font-semibold">Qty</th>
-                                    <th className="text-right py-1.5 font-semibold">Price</th>
-                                    <th className="text-right py-1.5 font-semibold">Subtotal</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {s.items.map((i) => (
-                                    <tr key={i.productId} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40">
-                                      <td className="py-1.5 text-slate-700 dark:text-slate-350">{i.name}</td>
-                                      <td className="py-1.5 font-mono hidden sm:table-cell text-slate-500">{i.barcode}</td>
-                                      <td className="py-1.5 text-right font-medium text-slate-750 dark:text-slate-300">{i.quantity}</td>
-                                      <td className="py-1.5 text-right text-slate-600 dark:text-slate-350">{fmt(i.price)}</td>
-                                      <td className="py-1.5 text-right font-bold text-slate-800 dark:text-slate-200">
-                                        {fmt(i.price * i.quantity)}
-                                      </td>
+                        <tr className="bg-slate-50/40 dark:bg-slate-900/30">
+                          <td colSpan={6} className="px-4 py-4 border-t border-b border-slate-100 dark:border-slate-800">
+                            <div className="space-y-4 max-w-full">
+                              <div className="flex items-center justify-between">
+                                <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider">
+                                  Transaction Ledger: {g.customerName}
+                                </h4>
+                                <span className="text-xs text-slate-500">
+                                  Total credit sales: <strong>{g.sales.length}</strong>
+                                </span>
+                              </div>
+                              
+                              <div className="border border-slate-100 dark:border-slate-800/80 rounded-xl overflow-hidden bg-white dark:bg-slate-900/40">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 text-left font-semibold">
+                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                      <th className="px-3 py-2">Receipt</th>
+                                      <th className="px-3 py-2">Date</th>
+                                      <th className="px-3 py-2 hidden sm:table-cell">Cashier</th>
+                                      <th className="px-3 py-2 text-right">Amount</th>
+                                      <th className="px-3 py-2 text-center">Status</th>
+                                      <th className="px-3 py-2 text-right">Actions</th>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {g.sales.map((sale) => {
+                                      const isReceiptOpen = expandedReceipt === sale.id
+                                      const isSalePaid = sale.creditStatus === 'paid'
+                                      const isSaleUpdating = updatingId === sale.id
+                                      
+                                      return (
+                                        <Fragment key={sale.id}>
+                                          <tr className={`hover:bg-slate-50/30 dark:hover:bg-slate-800/5 transition ${isSaleUpdating ? 'opacity-50' : ''}`}>
+                                            <td className="px-3 py-2.5 font-mono text-slate-700 dark:text-slate-350">
+                                              …{sale.id.slice(-8)}
+                                            </td>
+                                            <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400">
+                                              {formatDateTime(sale.date)}
+                                            </td>
+                                            <td className="px-3 py-2.5 text-slate-500 hidden sm:table-cell">
+                                              {sale.cashierName}
+                                            </td>
+                                            <td className="px-3 py-2.5 text-right font-bold text-slate-900 dark:text-white">
+                                              {fmt(sale.total)}
+                                            </td>
+                                            <td className="px-3 py-2.5 text-center">
+                                              <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                                isSalePaid
+                                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                                                  : 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400'
+                                              }`}>
+                                                {isSalePaid ? 'Paid' : 'Unpaid'}
+                                              </span>
+                                            </td>
+                                            <td className="px-3 py-2.5 text-right gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => setExpandedReceipt(isReceiptOpen ? null : sale.id)}
+                                                className="text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 mr-3 cursor-pointer"
+                                              >
+                                                {isReceiptOpen ? 'Hide Items' : 'View Items'}
+                                              </button>
+                                              
+                                              <button
+                                                type="button"
+                                                disabled={updatingId !== null}
+                                                onClick={() => togglePaidStatus(sale.id, sale.creditStatus, g.customerName, sale.total)}
+                                                className={`px-2 py-1 rounded text-[10px] font-bold transition duration-150 cursor-pointer ${
+                                                  isSalePaid
+                                                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400'
+                                                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400'
+                                                }`}
+                                              >
+                                                {isSaleUpdating ? 'Updating…' : isSalePaid ? 'Mark Unpaid' : 'Mark Paid'}
+                                              </button>
+                                              
+                                              {isAdmin && (
+                                                <button
+                                                  type="button"
+                                                  disabled={updatingId !== null || deletingId === sale.id}
+                                                  onClick={() => removeSale(sale.id, `${g.customerName} (${fmt(sale.total)})`)}
+                                                  className="px-2 py-1 rounded text-[10px] font-bold bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400 transition ml-2 cursor-pointer"
+                                                >
+                                                  {deletingId === sale.id ? 'Deleting…' : 'Delete'}
+                                                </button>
+                                              )}
+                                            </td>
+                                          </tr>
+                                          
+                                          {/* Nested Items for this specific Receipt */}
+                                          {isReceiptOpen && (
+                                            <tr className="bg-slate-50/80 dark:bg-slate-900/60">
+                                              <td colSpan={6} className="px-6 py-2.5">
+                                                <div className="border border-slate-100 dark:border-slate-800 rounded-lg p-2 bg-white dark:bg-slate-900/20">
+                                                  <table className="w-full text-[11px]">
+                                                    <thead>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-500 font-semibold">
+                                                        <th className="text-left py-1">Item Name</th>
+                                                        <th className="text-right py-1">Qty</th>
+                                                        <th className="text-right py-1">Price</th>
+                                                        <th className="text-right py-1">Subtotal</th>
+                                                      </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                      {sale.items.map((item) => (
+                                                        <tr key={item.productId} className="border-b border-slate-50 dark:border-slate-800 last:border-b-0">
+                                                          <td className="py-1 text-slate-700 dark:text-slate-300">{item.name}</td>
+                                                          <td className="py-1 text-right text-slate-650 dark:text-slate-400">{item.quantity}</td>
+                                                          <td className="py-1 text-right text-slate-500">{fmt(item.price)}</td>
+                                                          <td className="py-1 text-right font-bold text-slate-800 dark:text-slate-200">
+                                                            {fmt(item.price * item.quantity)}
+                                                          </td>
+                                                        </tr>
+                                                      ))}
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </Fragment>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
                           </td>
                         </tr>

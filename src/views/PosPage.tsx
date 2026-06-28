@@ -12,7 +12,7 @@ interface CartLine {
 }
 
 export default function PosPage() {
-  const { products, recordSale, addProduct } = useStore()
+  const { products, recordSale, addProduct, sales } = useStore()
   const { user } = useAuth()
   const [cart, setCart] = useState<CartLine[]>([])
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -34,8 +34,36 @@ export default function PosPage() {
   const [customerPhone, setCustomerPhone] = useState('')
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [submittingCheckout, setSubmittingCheckout] = useState(false)
+  const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
 
   const { returnRequests, createReturnRequest, pollReturns } = useStore()
+
+  // Get all unique customers from sales history
+  const uniqueCustomers = useMemo(() => {
+    const map = new Map<string, { name: string; phone: string }>()
+    if (!sales) return []
+    
+    sales.forEach(s => {
+      if (s.paymentMethod === 'credit' && s.customerName?.trim()) {
+        const name = s.customerName.trim()
+        const phone = s.customerPhone?.trim() || ''
+        const key = `${name.toLowerCase()}||${phone}`
+        if (!map.has(key)) {
+          map.set(key, { name, phone })
+        }
+      }
+    })
+    return Array.from(map.values())
+  }, [sales])
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerName.trim().toLowerCase()
+    if (!q) return uniqueCustomers.slice(0, 5)
+    return uniqueCustomers.filter(c => 
+      c.name.toLowerCase().includes(q) || 
+      c.phone.includes(q)
+    ).slice(0, 5)
+  }, [uniqueCustomers, customerName])
 
   // Suggestion Navigation State
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -260,6 +288,7 @@ export default function PosPage() {
     setLastSale(sale)
     setCart([])
     flash('ok', `Sale complete: ${formatMoney(sale.total)}`)
+    printReceipt(sale)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -869,17 +898,43 @@ export default function PosPage() {
 
             {paymentMethod === 'credit' && (
               <div className="space-y-4 mb-5 animate-[fadeIn_0.15s_ease-out]">
-                <div>
+                <div className="relative">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                     Customer Name (Grahak Ka Naam) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    onChange={(e) => {
+                      setCustomerName(e.target.value)
+                      setShowCustomerSuggestions(true)
+                    }}
+                    onFocus={() => setShowCustomerSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowCustomerSuggestions(false), 200)}
                     placeholder="e.g. Ahmed Ali"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
                   />
+                  {showCustomerSuggestions && filteredCustomers.length > 0 && (
+                    <div className="absolute left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-xl shadow-lg divide-y divide-slate-100 dark:divide-slate-700">
+                      {filteredCustomers.map((cust, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onMouseDown={() => {
+                            setCustomerName(cust.name)
+                            setCustomerPhone(cust.phone)
+                            setShowCustomerSuggestions(false)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-750 transition cursor-pointer flex flex-col"
+                        >
+                          <span className="text-sm font-bold text-slate-850 dark:text-slate-200">{cust.name}</span>
+                          {cust.phone && (
+                            <span className="text-xs text-slate-405 dark:text-slate-400 font-medium">{cust.phone}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
