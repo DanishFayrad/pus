@@ -28,3 +28,20 @@ export function formatDate(iso: string | Date): string {
 export function pktDayKey(iso: string | Date): string {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
 }
+
+/** HH:MM in Pakistan time — for time-of-day comparisons. */
+export function pktTimeKey(iso: string | Date): string {
+  const d = new Date(iso)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const parts = formatter.formatToParts(d)
+  let hourStr = parts.find((p) => p.type === 'hour')?.value || '00'
+  const minuteStr = parts.find((p) => p.type === 'minute')?.value || '00'
+  if (hourStr === '24') hourStr = '00'
+  return `${hourStr.padStart(2, '0')}:${minuteStr.padStart(2, '0')}`
+}
+

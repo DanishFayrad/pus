@@ -3,7 +3,7 @@ import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
-import { formatDateTime, pktDayKey, formatDate } from '../../lib/datetime'
+import { formatDateTime, pktDayKey, formatDate, pktTimeKey } from '../../lib/datetime'
 import { printReceipt } from '../../lib/receipt'
 
 export default function AdminSales() {
@@ -17,6 +17,9 @@ export default function AdminSales() {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'last7' | 'last10' | 'last30' | 'custom'>('all')
   const [customStart, setCustomStart] = useState(() => pktDayKey(new Date()))
   const [customEnd, setCustomEnd] = useState(() => pktDayKey(new Date()))
+  const [timeFilter, setTimeFilter] = useState<'all' | 'morning' | 'evening' | 'night' | 'custom'>('all')
+  const [customTimeStart, setCustomTimeStart] = useState('09:00')
+  const [customTimeEnd, setCustomTimeEnd] = useState('17:00')
   const [activeTab, setActiveTab] = useState<'receipts' | 'products' | 'daily'>('receipts')
 
   // Search & Pagination
@@ -24,10 +27,10 @@ export default function AdminSales() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(15)
 
-  // Reset pagination when date filter, search query, or tab changes
+  // Reset pagination when date/time filter, search query, or tab changes
   useEffect(() => {
     setCurrentPage(1)
-  }, [dateFilter, searchQuery, activeTab])
+  }, [dateFilter, timeFilter, customTimeStart, customTimeEnd, searchQuery, activeTab])
 
   const removeSale = async (id: string, label: string) => {
     const ok = await confirm({
@@ -61,37 +64,80 @@ export default function AdminSales() {
     return pktDayKey(d)
   }
 
-  // Filter sales based on the active date filter
+  // Filter sales based on the active date and time filters
   const filteredSales = useMemo(() => {
     return sales.filter((s) => {
+      // 1. Date Filter
       const saleDay = pktDayKey(s.date)
+      let dateMatch = false
       switch (dateFilter) {
         case 'today':
-          return saleDay === getPktDateString(0)
+          dateMatch = saleDay === getPktDateString(0)
+          break
         case 'yesterday':
-          return saleDay === getPktDateString(1)
+          dateMatch = saleDay === getPktDateString(1)
+          break
         case 'last7':
-          return saleDay >= getPktDateString(6) && saleDay <= getPktDateString(0)
+          dateMatch = saleDay >= getPktDateString(6) && saleDay <= getPktDateString(0)
+          break
         case 'last10':
-          return saleDay >= getPktDateString(9) && saleDay <= getPktDateString(0)
+          dateMatch = saleDay >= getPktDateString(9) && saleDay <= getPktDateString(0)
+          break
         case 'last30':
-          return saleDay >= getPktDateString(29) && saleDay <= getPktDateString(0)
+          dateMatch = saleDay >= getPktDateString(29) && saleDay <= getPktDateString(0)
+          break
         case 'custom':
           if (customStart && customEnd) {
-            return saleDay >= customStart && saleDay <= customEnd
+            dateMatch = saleDay >= customStart && saleDay <= customEnd
+          } else if (customStart) {
+            dateMatch = saleDay >= customStart
+          } else if (customEnd) {
+            dateMatch = saleDay <= customEnd
+          } else {
+            dateMatch = true
           }
-          if (customStart) {
-            return saleDay >= customStart
-          }
-          if (customEnd) {
-            return saleDay <= customEnd
-          }
-          return true
+          break
         default:
-          return true
+          dateMatch = true
+          break
+      }
+
+      if (!dateMatch) return false
+
+      // 2. Time Filter
+      if (timeFilter === 'all') return true
+
+      const saleTime = pktTimeKey(s.date) // "HH:MM"
+      let startTime = '00:00'
+      let endTime = '23:59'
+
+      switch (timeFilter) {
+        case 'morning':
+          startTime = '08:00'
+          endTime = '15:59'
+          break
+        case 'evening':
+          startTime = '16:00'
+          endTime = '23:59'
+          break
+        case 'night':
+          startTime = '00:00'
+          endTime = '07:59'
+          break
+        case 'custom':
+          startTime = customTimeStart || '00:00'
+          endTime = customTimeEnd || '23:59'
+          break
+      }
+
+      if (startTime <= endTime) {
+        return saleTime >= startTime && saleTime <= endTime
+      } else {
+        // Crosses midnight, e.g. 22:00 to 06:00
+        return saleTime >= startTime || saleTime <= endTime
       }
     })
-  }, [sales, dateFilter, customStart, customEnd])
+  }, [sales, dateFilter, customStart, customEnd, timeFilter, customTimeStart, customTimeEnd])
 
   // Filter sales based on search query
   const searchedSales = useMemo(() => {
@@ -226,8 +272,9 @@ export default function AdminSales() {
         <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white">Sales & Records</h1>
       </div>
 
-      {/* Date Filters Panel */}
+      {/* Filters Panel */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs space-y-4">
+        {/* Date Filters */}
         <div>
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Date Range Filter</h2>
           <div className="flex flex-wrap gap-2">
@@ -296,6 +343,73 @@ export default function AdminSales() {
                 className="px-3 py-2 text-xs font-semibold text-red-500 hover:text-red-655 hover:underline transition cursor-pointer"
               >
                 Reset Custom Dates
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Time Filters Divider */}
+        <div className="border-t border-slate-100 dark:border-slate-700/50 my-3"></div>
+
+        {/* Time Filters */}
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Time Filter</h2>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: 'all', label: 'All Day' },
+                { id: 'morning', label: 'Morning (08:00 AM - 04:00 PM)' },
+                { id: 'evening', label: 'Evening (04:00 PM - 12:00 AM)' },
+                { id: 'night', label: 'Night (12:00 AM - 08:00 AM)' },
+                { id: 'custom', label: 'Custom Time' },
+              ] as const
+            ).map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setTimeFilter(filter.id)}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-xl transition duration-150 cursor-pointer ${
+                  timeFilter === filter.id
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-50 text-slate-655 hover:bg-slate-100 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-900'
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {timeFilter === 'custom' && (
+          <div className="flex flex-wrap gap-3 items-end pt-2 border-t border-dashed border-slate-100 dark:border-slate-700/50 animate-[fadeIn_0.15s_ease-out]">
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-455 dark:text-slate-400">Start Time</label>
+              <input
+                type="time"
+                value={customTimeStart}
+                onChange={(e) => setCustomTimeStart(e.target.value)}
+                className="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-455 dark:text-slate-400">End Time</label>
+              <input
+                type="time"
+                value={customTimeEnd}
+                onChange={(e) => setCustomTimeEnd(e.target.value)}
+                className="px-3 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+            {(customTimeStart !== '09:00' || customTimeEnd !== '17:00') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomTimeStart('09:00')
+                  setCustomTimeEnd('17:00')
+                }}
+                className="px-3 py-2 text-xs font-semibold text-red-500 hover:text-red-655 hover:underline transition cursor-pointer"
+              >
+                Reset Custom Time
               </button>
             )}
           </div>
