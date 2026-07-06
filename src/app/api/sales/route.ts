@@ -17,7 +17,7 @@ export async function GET() {
 
   try {
     await dbConnect()
-    const sales = await Sale.find().sort({ date: -1 }).limit(500)
+    const sales = await Sale.find().sort({ date: -1 })
     return NextResponse.json({ sales: sales.map((s) => s.toJSON()) })
   } catch (e) {
     console.error('GET /sales error', e)

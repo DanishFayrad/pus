@@ -26,7 +26,18 @@ export function formatDate(iso: string | Date): string {
 
 /** YYYY-MM-DD in Pakistan time — for "is this today (PKT)?" comparisons. */
 export function pktDayKey(iso: string | Date): string {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
+  const d = new Date(iso)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const parts = formatter.formatToParts(d)
+  const year = parts.find((p) => p.type === 'year')?.value || '1970'
+  const month = parts.find((p) => p.type === 'month')?.value || '01'
+  const day = parts.find((p) => p.type === 'day')?.value || '01'
+  return `${year}-${month}-${day}`
 }
 
 /** HH:MM in Pakistan time — for time-of-day comparisons. */
