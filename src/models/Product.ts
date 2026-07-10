@@ -7,6 +7,7 @@ export interface IProduct {
   price: number
   cost: number
   stock: number
+  category: string
 }
 
 const ProductSchema = new Schema<IProduct>(
@@ -16,17 +17,19 @@ const ProductSchema = new Schema<IProduct>(
     price: { type: Number, required: true, min: 0 },
     cost: { type: Number, required: true, min: 0 },
     stock: { type: Number, required: true, min: 0, default: 0 },
+    category: { type: String, required: true, default: 'General' },
   },
   { timestamps: true },
 )
 
 ProductSchema.set('toJSON', {
   virtuals: false,
-  transform: (_doc, ret: Record<string, unknown>) => {
-    ret.id = String(ret._id)
-    delete ret._id
-    delete ret.__v
-    return ret
+  transform: (_doc, ret) => {
+    const r = ret as unknown as Record<string, unknown>
+    r.id = String(r._id)
+    delete r._id
+    delete r.__v
+    return r
   },
 })
 

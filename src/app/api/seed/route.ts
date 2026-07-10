@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server'
 import dbConnect from '../../../lib/mongodb'
-import Product from '../../../models/Product'
 import User from '../../../models/User'
-import { mockProducts, mockUsers } from '../../../data/mockData'
+import { mockUsers } from '../../../data/mockData'
 
 export const runtime = 'nodejs'
 
 /**
  * POST /api/seed
  * Requires header `x-seed-secret: <SEED_SECRET env value>`.
- * Idempotent:
- *   - inserts products that don't exist (by barcode)
- *   - inserts users that don't exist (by username)
- *   - migrates plaintext user passwords to bcrypt hashes
+ * Idempotent user setup only — does not touch products, sales, or returns.
  */
 export async function POST(req: Request) {
   const expected = process.env.SEED_SECRET
@@ -24,22 +20,6 @@ export async function POST(req: Request) {
   try {
     await dbConnect()
 
-    let productsInserted = 0
-    for (const p of mockProducts) {
-      const exists = await Product.findOne({ barcode: p.barcode })
-      if (!exists) {
-        await Product.create({
-          barcode: p.barcode,
-          name: p.name,
-          price: p.price,
-          cost: p.cost,
-          stock: p.stock,
-        })
-        productsInserted++
-      }
-    }
-
-    // Clear old cashiers to ensure only the cashiers in mockData are present
     await User.deleteMany({ role: 'cashier' })
 
     let usersInserted = 0
@@ -47,7 +27,6 @@ export async function POST(req: Request) {
     for (const u of mockUsers) {
       const existing = await User.findOne({ username: u.username.toLowerCase() })
       if (!existing) {
-        // Pre-save hook hashes the plaintext from mockData.
         await User.create({
           username: u.username.toLowerCase(),
           password: u.password,
@@ -56,19 +35,16 @@ export async function POST(req: Request) {
         })
         usersInserted++
       } else if (!existing.password.startsWith('$2')) {
-        // Legacy plaintext password — migrate to bcrypt.
         existing.password = u.password
-        await existing.save() // pre-save hook will hash
+        await existing.save()
         usersMigrated++
       }
     }
 
     return NextResponse.json({
       ok: true,
-      productsInserted,
       usersInserted,
       usersMigrated,
-      totalProducts: await Product.countDocuments(),
       totalUsers: await User.countDocuments(),
     })
   } catch (e) {

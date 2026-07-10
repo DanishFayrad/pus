@@ -7,7 +7,7 @@ interface ConfirmOptions {
   message: ReactNode
   confirmLabel?: string
   cancelLabel?: string
-  tone?: 'default' | 'danger'
+  tone?: 'default' | 'danger' | 'success' | 'warning'
 }
 
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>
@@ -43,10 +43,12 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   }, [opts, respond])
 
   const tone = opts?.tone ?? 'default'
-  const confirmBtn =
-    tone === 'danger'
-      ? 'bg-red-600 hover:bg-red-500 focus:ring-red-500'
-      : 'bg-blue-600 hover:bg-blue-500 focus:ring-blue-500'
+  const confirmBtn = {
+    danger: 'bg-red-600 hover:bg-red-500 focus:ring-red-500',
+    success: 'bg-emerald-600 hover:bg-emerald-500 focus:ring-emerald-500',
+    warning: 'bg-amber-600 hover:bg-amber-500 focus:ring-amber-500',
+    default: 'bg-blue-600 hover:bg-blue-500 focus:ring-blue-500',
+  }[tone]
 
   return (
     <ConfirmContext.Provider value={confirm}>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
@@ -11,25 +11,37 @@ interface FormState {
   price: string
   cost: string
   stock: string
+  category: string
 }
 
-const emptyForm: FormState = { barcode: '', name: '', price: '', cost: '', stock: '' }
+const emptyForm: FormState = { barcode: '', name: '', price: '', cost: '', stock: '', category: '' }
 
 export default function AdminProducts() {
-  const { products, addProduct, updateProduct, deleteProduct, resetMockData } = useStore()
+  const { products, addProduct, updateProduct, deleteProduct } = useStore()
   const confirm = useConfirm()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
-  const visibleProducts = (() => {
+  const categories = useMemo(
+    () => Array.from(new Set(products.map((p) => p.category || 'General'))).sort(),
+    [products],
+  )
+
+  const visibleProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return products
-    return products.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.barcode.toLowerCase().includes(q),
-    )
-  })()
+    return products.filter((p) => {
+      if (categoryFilter && (p.category || 'General') !== categoryFilter) return false
+      if (!q) return true
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.barcode.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q)
+      )
+    })
+  }, [products, search, categoryFilter])
 
   const startNew = () => {
     setEditingId('new')
@@ -45,6 +57,7 @@ export default function AdminProducts() {
       price: String(p.price),
       cost: String(p.cost),
       stock: String(p.stock),
+      category: p.category || '',
     })
     setError(null)
   }
@@ -72,22 +85,18 @@ export default function AdminProducts() {
     setSaving(true)
     setError(null)
     try {
+      const payload = {
+        barcode: form.barcode.trim(),
+        name: form.name.trim(),
+        price,
+        cost,
+        stock,
+        category: form.category.trim() || 'General',
+      }
       if (editingId === 'new') {
-        await addProduct({
-          barcode: form.barcode.trim(),
-          name: form.name.trim(),
-          price,
-          cost,
-          stock,
-        })
+        await addProduct(payload)
       } else if (editingId) {
-        await updateProduct(editingId, {
-          barcode: form.barcode.trim(),
-          name: form.name.trim(),
-          price,
-          cost,
-          stock,
-        })
+        await updateProduct(editingId, payload)
       }
       cancel()
     } catch (e) {
@@ -122,33 +131,11 @@ export default function AdminProducts() {
     }
   }
 
-  const resetDemo = async () => {
-    const ok = await confirm({
-      title: 'Reset demo data',
-      message: 'This will re-seed any missing demo products and users into the database. Existing rows will not be deleted. Continue?',
-      confirmLabel: 'Reset',
-    })
-    if (ok) {
-      try {
-        await resetMockData()
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Reset failed')
-      }
-    }
-  }
-
   return (
     <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl sm:text-2xl font-bold">Products</h1>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={resetDemo}
-            className="px-3 py-2 text-xs sm:text-sm rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            Reset demo data
-          </button>
           <button
             type="button"
             onClick={startNew}
@@ -159,24 +146,38 @@ export default function AdminProducts() {
         </div>
       </div>
 
-      <div className="relative mx-auto w-full max-w-md">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search products by name or barcode…"
-          className="w-full px-3 py-2 pr-20 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autoComplete="off"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-800 hover:underline"
-          >
-            Clear
-          </button>
-        )}
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search products by name, barcode or category…"
+            className="w-full px-3 py-2 pr-20 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            autoComplete="off"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-800 hover:underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-52"
+        >
+          <option value="">All categories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
       </div>
 
       {editingId && (
@@ -184,7 +185,7 @@ export default function AdminProducts() {
           <h2 className="font-semibold">
             {editingId === 'new' ? 'New product' : 'Edit product'}
           </h2>
-          <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3">
             <input
               placeholder="Barcode"
               value={form.barcode}
@@ -197,6 +198,18 @@ export default function AdminProducts() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 sm:col-span-1 md:col-span-2"
             />
+            <input
+              placeholder="Category"
+              list="product-categories"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+            />
+            <datalist id="product-categories">
+              {categories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
             <input
               placeholder="Price"
               type="number"
@@ -253,6 +266,7 @@ export default function AdminProducts() {
             <tr>
               <th className="px-3 sm:px-4 py-2 font-medium hidden sm:table-cell">Barcode</th>
               <th className="px-3 sm:px-4 py-2 font-medium">Name</th>
+              <th className="px-3 sm:px-4 py-2 font-medium hidden lg:table-cell">Category</th>
               <th className="px-3 sm:px-4 py-2 font-medium text-right">Price</th>
               <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Cost</th>
               <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Margin</th>
@@ -269,6 +283,11 @@ export default function AdminProducts() {
                   <td className="px-3 sm:px-4 py-2">
                     <div>{p.name}</div>
                     <div className="text-[10px] text-slate-500 font-mono sm:hidden">{p.barcode}</div>
+                  </td>
+                  <td className="px-3 sm:px-4 py-2 hidden lg:table-cell">
+                    <span className="inline-block rounded-full bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-xs text-slate-600 dark:text-slate-300">
+                      {p.category || 'General'}
+                    </span>
                   </td>
                   <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">{fmt(p.price)}</td>
                   <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden md:table-cell">{fmt(p.cost)}</td>
@@ -314,9 +333,9 @@ export default function AdminProducts() {
             })}
             {visibleProducts.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-slate-500">
-                  {search.trim()
-                    ? `No products match “${search.trim()}”`
+                <td colSpan={8} className="p-6 text-center text-slate-500">
+                  {search.trim() || categoryFilter
+                    ? 'No products match the current filters'
                     : 'No products. Add one to get started.'}
                 </td>
               </tr>

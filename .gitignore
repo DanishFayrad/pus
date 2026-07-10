@@ -26,3 +26,5 @@ dist-ssr
 .next
 
 package-lock.json
+test_stats.js
+*.tsbuildinfo

@@ -15,6 +15,7 @@ export interface Product {
   price: number
   cost: number
   stock: number
+  category: string
 }
 
 export interface SaleItem {

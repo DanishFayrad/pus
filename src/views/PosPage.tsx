@@ -22,7 +22,7 @@ export default function PosPage() {
   const [returnModal, setReturnModal] = useState<Product | null>(null)
   const [returnQty, setReturnQty] = useState(1)
 
-  const emptyProductForm = { barcode: '', name: '', price: '', cost: '', stock: '' }
+  const emptyProductForm = { barcode: '', name: '', price: '', cost: '', stock: '', category: '' }
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [productForm, setProductForm] = useState(emptyProductForm)
   const [savingProduct, setSavingProduct] = useState(false)
@@ -200,6 +200,7 @@ export default function PosPage() {
         price,
         cost,
         stock,
+        category: productForm.category.trim() || 'General',
       })
       setProductModalOpen(false)
       setProductForm(emptyProductForm)
@@ -829,6 +830,21 @@ export default function PosPage() {
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
                   />
                 </div>
+              </div>
+              <div className="mt-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Category</label>
+                <input
+                  list="pos-product-categories"
+                  value={productForm.category}
+                  onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
+                  placeholder="General"
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
+                />
+                <datalist id="pos-product-categories">
+                  {Array.from(new Set(products.map((p) => p.category || 'General'))).sort().map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </div>
             </div>
             {productError && (

@@ -64,6 +64,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       return (
         <>
           <Link href="/admin" className={cls('/admin')}>Dashboard</Link>
+          <Link href="/admin/analytics" className={cls('/admin/analytics')}>Analytics</Link>
+          <Link href="/admin/reports" className={cls('/admin/reports')}>Reports</Link>
           <Link href="/admin/products" className={cls('/admin/products')}>Products</Link>
           <Link href="/admin/sales" className={cls('/admin/sales')}>Sales</Link>
           <Link href="/admin/credits" className={cls('/admin/credits')}>Credit Book</Link>

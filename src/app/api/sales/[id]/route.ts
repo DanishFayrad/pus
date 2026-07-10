@@ -46,6 +46,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: 'Body required' }, { status: 400 })
     }
 
+    if (body.creditStatus !== undefined && !['unpaid', 'paid'].includes(body.creditStatus)) {
+      return NextResponse.json({ error: 'Invalid creditStatus' }, { status: 400 })
+    }
+    if (body.paymentMethod !== undefined && !['cash', 'credit'].includes(body.paymentMethod)) {
+      return NextResponse.json({ error: 'Invalid paymentMethod' }, { status: 400 })
+    }
+
+    // Cashiers settle credit from the Credit Book, so creditStatus and customer details stay
+    // open to them. Switching paymentMethod rewrites what kind of sale this was and would drop
+    // a bill out of the credit book entirely, so that stays with admins.
+    if (body.paymentMethod !== undefined && session.role !== 'admin') {
+      return NextResponse.json({ error: 'Only an admin can change the payment method' }, { status: 403 })
+    }
+
     await dbConnect()
     const sale = await Sale.findById(id)
     if (!sale) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -54,10 +68,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       sale.creditStatus = body.creditStatus
     }
     if (body.customerName !== undefined) {
-      sale.customerName = body.customerName
+      sale.customerName = String(body.customerName).trim()
     }
     if (body.customerPhone !== undefined) {
-      sale.customerPhone = body.customerPhone
+      sale.customerPhone = String(body.customerPhone).trim()
     }
     if (body.paymentMethod !== undefined) {
       sale.paymentMethod = body.paymentMethod

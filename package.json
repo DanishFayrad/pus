@@ -7,18 +7,26 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:clean-fake": "node clean_fake_seed.cjs",
+    "db:clean-fake:delete": "node clean_fake_seed.cjs --delete",
+    "db:clean-fake:purge": "node clean_fake_seed.cjs --purge-all"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "apexcharts": "^5.16.0",
     "bcryptjs": "^3.0.3",
+    "exceljs": "^4.4.0",
     "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "mongodb": "^7.2.0",
     "mongoose": "^9.6.2",
     "next": "^16.2.6",
     "postcss": "^8.5.14",
     "react": "^19.2.6",
+    "react-apexcharts": "^2.1.1",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {

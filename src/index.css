@@ -27,3 +27,41 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Print-friendly reports: drop app chrome and let the report table flow across pages. */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  header,
+  nav,
+  aside,
+  .no-print {
+    display: none !important;
+  }
+  .print-area {
+    display: block !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .print-area table {
+    width: 100% !important;
+    font-size: 10px;
+  }
+  /* Repeat the header on every printed page and never split a row. */
+  .print-area thead {
+    display: table-header-group;
+  }
+  .print-area tr {
+    break-inside: avoid;
+  }
+  /* Show every row when printing, even if the screen preview was truncated. */
+  .print-scroll {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+}

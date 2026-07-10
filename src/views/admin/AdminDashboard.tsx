@@ -54,31 +54,57 @@ export default function AdminDashboard() {
   }, [pendingReturns.length])
 
   const stats = useMemo(() => {
-    const totalRevenue = sales.reduce((s, x) => s + x.total, 0)
-    const totalCost = sales.reduce((s, x) => s + x.cost, 0)
-    const profit = totalRevenue - totalCost
-    const itemsSold = sales.reduce(
-      (s, x) => s + x.items.reduce((a, i) => a + i.quantity, 0),
+    let totalRevenue = sales.reduce((s, x) => s + (x.total || 0), 0)
+    let totalCost = sales.reduce((s, x) => s + (x.cost || 0), 0)
+    let profit = sales.reduce((s, x) => s + (x.profit || 0), 0)
+    let salesCount = sales.length
+    let itemsSold = sales.reduce(
+      (s, x) => s + x.items.reduce((a, i) => a + (i.quantity || 0), 0),
       0,
     )
-    const inventoryValue = products.reduce((s, p) => s + p.cost * p.stock, 0)
+
+    const approvedReturns = returnRequests.filter(r => r.status === 'approved')
+    approvedReturns.forEach(r => {
+      const p = products.find(prod => String(prod.id) === String(r.productId))
+      if (p) {
+        totalRevenue -= p.price * r.quantity
+        totalCost -= p.cost * r.quantity
+        profit -= (p.price - p.cost) * r.quantity
+        itemsSold -= r.quantity
+      }
+    })
+
+    const inventoryValue = products.reduce((s, p) => s + (p.cost * p.stock || 0), 0)
     const lowStock = products.filter((p) => p.stock <= 5).length
     const today = pktDayKey(new Date())
-    const todayRevenue = sales
+    
+    let todayRevenue = sales
       .filter((s) => pktDayKey(s.date) === today)
-      .reduce((s, x) => s + x.total, 0)
-    return { totalRevenue, totalCost, profit, itemsSold, inventoryValue, lowStock, todayRevenue }
-  }, [products, sales])
+      .reduce((s, x) => s + (x.total || 0), 0)
+      
+    approvedReturns
+      .filter(r => pktDayKey(r.updatedAt) === today)
+      .forEach(r => {
+        const p = products.find(prod => String(prod.id) === String(r.productId))
+        if (p) {
+          todayRevenue -= p.price * r.quantity
+        }
+      })
+
+    return { totalRevenue, totalCost, profit, salesCount, itemsSold, inventoryValue, lowStock, todayRevenue }
+  }, [products, sales, returnRequests])
 
   const recent = sales.slice(0, 5)
 
   const cards = [
     { label: 'Total Revenue', value: fmt(stats.totalRevenue), tone: 'indigo' as const },
+    { label: 'Total Cost', value: fmt(stats.totalCost), tone: 'slate' as const },
     {
       label: stats.profit >= 0 ? 'Profit' : 'Loss',
       value: fmt(Math.abs(stats.profit)),
       tone: (stats.profit >= 0 ? 'emerald' : 'red') as 'emerald' | 'red',
     },
+    { label: 'Sales', value: String(stats.salesCount), tone: 'slate' as const },
     { label: "Today's Revenue", value: fmt(stats.todayRevenue), tone: 'slate' as const },
     { label: 'Items Sold', value: String(stats.itemsSold), tone: 'slate' as const },
     { label: 'Inventory Value', value: fmt(stats.inventoryValue), tone: 'slate' as const },
@@ -101,7 +127,7 @@ export default function AdminDashboard() {
     <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
       <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         {cards.map((c) => (
           <div
             key={c.label}

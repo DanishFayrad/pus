@@ -31,7 +31,7 @@ UserSchema.pre('save', async function () {
 UserSchema.set('toJSON', {
   virtuals: false,
   transform: (_doc, ret) => {
-    const r = ret as Record<string, unknown>
+    const r = ret as unknown as Record<string, unknown>
     r.id = String(r._id)
     delete r._id
     delete r.__v

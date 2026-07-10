@@ -45,8 +45,9 @@ export async function PUT(req: Request, { params }: Ctx) {
     if (body.price !== undefined) patch.price = Number(body.price)
     if (body.cost !== undefined) patch.cost = Number(body.cost)
     if (body.stock !== undefined) patch.stock = Number(body.stock)
+    if (body.category !== undefined) patch.category = String(body.category).trim() || 'General'
 
-    const updated = await Product.findByIdAndUpdate(id, patch, { new: true })
+    const updated = await Product.findByIdAndUpdate(id, patch, { new: true, runValidators: true })
     if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     return NextResponse.json({ product: updated.toJSON() })

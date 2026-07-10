@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Product, Sale, SaleItem, ReturnRequest } from '../types'
 
@@ -27,7 +27,6 @@ interface StoreContextValue {
   createReturnRequest: (productId: string, productName: string, quantity: number) => Promise<void>
   updateReturnRequest: (id: string, status: 'approved' | 'rejected') => Promise<void>
   deleteReturnRequest: (id: string) => Promise<void>
-  resetMockData: () => Promise<void>
   refresh: () => Promise<void>
   pollReturns: () => Promise<void>
 }
@@ -53,9 +52,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Granular refetches. A mutation only reloads the collections it can actually change,
+  // instead of pulling products, sales and returns back down every time.
+  const refreshProducts = useCallback(async () => {
+    const p = await api<{ products: Product[] }>('/api/products')
+    setProducts(p.products)
+  }, [])
+
+  const refreshSales = useCallback(async () => {
+    const s = await api<{ sales: Sale[] }>('/api/sales')
+    setSales(s.sales)
+  }, [])
+
+  const pollReturns = useCallback(async () => {
+    try {
+      const r = await api<{ returnRequests: ReturnRequest[] }>('/api/returns')
+      setReturnRequests(r.returnRequests)
+    } catch {
+      // Polling runs on a timer; a transient failure is retried on the next tick.
+    }
+  }, [])
+
   const refresh = useCallback(async () => {
     try {
-      setError(null)
       const [p, s, r] = await Promise.all([
         api<{ products: Product[] }>('/api/products'),
         api<{ sales: Sale[] }>('/api/sales'),
@@ -64,6 +83,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setProducts(p.products)
       setSales(s.sales)
       setReturnRequests(r.returnRequests)
+      setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
@@ -75,117 +95,151 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
-  const addProduct: StoreContextValue['addProduct'] = async (p) => {
-    await api('/api/products', { method: 'POST', body: JSON.stringify(p) })
-    await refresh()
-  }
-
-  const updateProduct: StoreContextValue['updateProduct'] = async (id, patch) => {
-    await api(`/api/products/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
-    await refresh()
-  }
-
-  const deleteProduct: StoreContextValue['deleteProduct'] = async (id) => {
-    await api(`/api/products/${id}`, { method: 'DELETE' })
-    await refresh()
-  }
-
-  const findByBarcode: StoreContextValue['findByBarcode'] = (barcode) => {
-    const trimmed = barcode.trim()
-    return products.find((p) => p.barcode === trimmed)
-  }
-
-  const recordSale: StoreContextValue['recordSale'] = async (items, cashier, extra) => {
-    try {
-      const data = await api<{ sale: Sale }>('/api/sales', {
-        method: 'POST',
-        body: JSON.stringify({
-          cashier,
-          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-          paymentMethod: extra?.paymentMethod || 'cash',
-          customerName: extra?.customerName || '',
-          customerPhone: extra?.customerPhone || '',
-        }),
-      })
-      await refresh()
-      return data.sale
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Checkout failed')
-      return null
-    }
-  }
-
-  const updateSale: StoreContextValue['updateSale'] = async (id, patch) => {
-    await api(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
-    await refresh()
-  }
-
-  const deleteSale: StoreContextValue['deleteSale'] = async (id) => {
-    await api(`/api/sales/${id}`, { method: 'DELETE' })
-    await refresh()
-  }
-
-  const createReturnRequest: StoreContextValue['createReturnRequest'] = async (productId, productName, quantity) => {
-    await api('/api/returns', {
-      method: 'POST',
-      body: JSON.stringify({ productId, productName, quantity }),
-    })
-    await pollReturns()
-  }
-
-  const updateReturnRequest: StoreContextValue['updateReturnRequest'] = async (id, status) => {
-    await api(`/api/returns/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status }),
-    })
-    await refresh()
-  }
-
-  const deleteReturnRequest: StoreContextValue['deleteReturnRequest'] = async (id) => {
-    await api(`/api/returns/${id}`, { method: 'DELETE' })
-    await pollReturns()
-  }
-
-  const pollReturns = useCallback(async () => {
-    try {
-      const r = await api<{ returnRequests: ReturnRequest[] }>('/api/returns')
-      setReturnRequests(r.returnRequests)
-    } catch (e) {
-      // ignore polling errors
-    }
-  }, [])
-
-  const resetMockData: StoreContextValue['resetMockData'] = async () => {
-    await api('/api/seed', { method: 'POST' })
-    await refresh()
-  }
-
-  return (
-    <StoreContext.Provider
-      value={{
-        products,
-        sales,
-        returnRequests,
-        loading,
-        error,
-        addProduct,
-        updateProduct,
-        deleteProduct,
-        findByBarcode,
-        recordSale,
-        updateSale,
-        deleteSale,
-        createReturnRequest,
-        updateReturnRequest,
-        deleteReturnRequest,
-        resetMockData,
-        refresh,
-        pollReturns,
-      }}
-    >
-      {children}
-    </StoreContext.Provider>
+  const addProduct = useCallback<StoreContextValue['addProduct']>(
+    async (p) => {
+      await api('/api/products', { method: 'POST', body: JSON.stringify(p) })
+      await refreshProducts()
+    },
+    [refreshProducts],
   )
+
+  const updateProduct = useCallback<StoreContextValue['updateProduct']>(
+    async (id, patch) => {
+      await api(`/api/products/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+      await refreshProducts()
+    },
+    [refreshProducts],
+  )
+
+  const deleteProduct = useCallback<StoreContextValue['deleteProduct']>(
+    async (id) => {
+      await api(`/api/products/${id}`, { method: 'DELETE' })
+      await refreshProducts()
+    },
+    [refreshProducts],
+  )
+
+  const findByBarcode = useCallback<StoreContextValue['findByBarcode']>(
+    (barcode) => {
+      const trimmed = barcode.trim()
+      return products.find((p) => p.barcode === trimmed)
+    },
+    [products],
+  )
+
+  const recordSale = useCallback<StoreContextValue['recordSale']>(
+    async (items, cashier, extra) => {
+      try {
+        const data = await api<{ sale: Sale }>('/api/sales', {
+          method: 'POST',
+          body: JSON.stringify({
+            cashier,
+            items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+            paymentMethod: extra?.paymentMethod || 'cash',
+            customerName: extra?.customerName || '',
+            customerPhone: extra?.customerPhone || '',
+          }),
+        })
+        setError(null)
+        // Checkout writes a sale and decrements stock, so both collections are stale.
+        await Promise.all([refreshSales(), refreshProducts()])
+        return data.sale
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Checkout failed')
+        return null
+      }
+    },
+    [refreshSales, refreshProducts],
+  )
+
+  const updateSale = useCallback<StoreContextValue['updateSale']>(
+    async (id, patch) => {
+      await api(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(patch) })
+      await refreshSales()
+    },
+    [refreshSales],
+  )
+
+  const deleteSale = useCallback<StoreContextValue['deleteSale']>(
+    async (id) => {
+      await api(`/api/sales/${id}`, { method: 'DELETE' })
+      await refreshSales()
+    },
+    [refreshSales],
+  )
+
+  const createReturnRequest = useCallback<StoreContextValue['createReturnRequest']>(
+    async (productId, productName, quantity) => {
+      await api('/api/returns', {
+        method: 'POST',
+        body: JSON.stringify({ productId, productName, quantity }),
+      })
+      await pollReturns()
+    },
+    [pollReturns],
+  )
+
+  const updateReturnRequest = useCallback<StoreContextValue['updateReturnRequest']>(
+    async (id, status) => {
+      await api(`/api/returns/${id}`, { method: 'PUT', body: JSON.stringify({ status }) })
+      // Approving a return puts stock back, so products are stale too.
+      await Promise.all([pollReturns(), refreshProducts()])
+    },
+    [pollReturns, refreshProducts],
+  )
+
+  const deleteReturnRequest = useCallback<StoreContextValue['deleteReturnRequest']>(
+    async (id) => {
+      await api(`/api/returns/${id}`, { method: 'DELETE' })
+      await pollReturns()
+    },
+    [pollReturns],
+  )
+
+  // Without this memo the provider hands consumers a brand-new object on every render,
+  // re-rendering every screen that reads the store even when nothing it uses changed.
+  const value = useMemo<StoreContextValue>(
+    () => ({
+      products,
+      sales,
+      returnRequests,
+      loading,
+      error,
+      addProduct,
+      updateProduct,
+      deleteProduct,
+      findByBarcode,
+      recordSale,
+      updateSale,
+      deleteSale,
+      createReturnRequest,
+      updateReturnRequest,
+      deleteReturnRequest,
+      refresh,
+      pollReturns,
+    }),
+    [
+      products,
+      sales,
+      returnRequests,
+      loading,
+      error,
+      addProduct,
+      updateProduct,
+      deleteProduct,
+      findByBarcode,
+      recordSale,
+      updateSale,
+      deleteSale,
+      createReturnRequest,
+      updateReturnRequest,
+      deleteReturnRequest,
+      refresh,
+      pollReturns,
+    ],
+  )
+
+  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 
 export function useStore() {

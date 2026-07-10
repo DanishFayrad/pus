@@ -7,7 +7,7 @@ import { formatDateTime, pktDayKey, formatDate, pktTimeKey } from '../../lib/dat
 import { printReceipt } from '../../lib/receipt'
 
 export default function AdminSales() {
-  const { sales, deleteSale } = useStore()
+  const { sales, deleteSale, returnRequests, products } = useStore()
   const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -156,17 +156,30 @@ export default function AdminSales() {
 
   // Calculate stats for searched/filtered sales
   const totals = useMemo(() => {
-    return searchedSales.reduce(
+    const rawTotals = searchedSales.reduce(
       (acc, s) => {
-        acc.revenue += s.total
-        acc.cost += s.cost
-        acc.profit += s.profit
-        acc.itemsSold += s.items.reduce((sum, item) => sum + item.quantity, 0)
+        acc.revenue += (s.total || 0)
+        acc.cost += (s.cost || 0)
+        acc.profit += (s.profit || 0)
+        acc.sales += 1
         return acc
       },
-      { revenue: 0, cost: 0, profit: 0, itemsSold: 0 },
+      { revenue: 0, cost: 0, profit: 0, sales: 0 },
     )
-  }, [searchedSales])
+
+    // Deduct approved returns
+    const approvedReturns = returnRequests.filter(r => r.status === 'approved')
+    approvedReturns.forEach(r => {
+      const p = products.find(prod => String(prod.id) === String(r.productId))
+      if (p) {
+        rawTotals.revenue -= p.price * r.quantity
+        rawTotals.cost -= p.cost * r.quantity
+        rawTotals.profit -= (p.price - p.cost) * r.quantity
+      }
+    })
+
+    return rawTotals
+  }, [searchedSales, returnRequests, products])
 
   // Get products sold summary for the searched sales
   const productSales = useMemo(() => {
@@ -445,8 +458,8 @@ export default function AdminSales() {
           </div>
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs">
-          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">Items Sold</div>
-          <div className="text-lg sm:text-2xl font-black mt-1 truncate text-slate-800 dark:text-white">{totals.itemsSold}</div>
+          <div className="text-xs font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">Sales</div>
+          <div className="text-lg sm:text-2xl font-black mt-1 truncate text-slate-800 dark:text-white">{totals.sales}</div>
         </div>
       </div>
 

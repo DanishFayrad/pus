@@ -55,11 +55,12 @@ const SaleSchema = new Schema<ISale>(
 
 SaleSchema.set('toJSON', {
   virtuals: false,
-  transform: (_doc, ret: Record<string, unknown>) => {
-    ret.id = String(ret._id)
-    delete ret._id
-    delete ret.__v
-    return ret
+  transform: (_doc, ret) => {
+    const r = ret as unknown as Record<string, unknown>
+    r.id = String(r._id)
+    delete r._id
+    delete r.__v
+    return r
   },
 })
 

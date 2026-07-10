@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null)
     if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
-    const { barcode, name, price, cost, stock } = body
+    const { barcode, name, price, cost, stock, category } = body
     if (!barcode || !name) {
       return NextResponse.json({ error: 'barcode and name required' }, { status: 400 })
     }
@@ -45,6 +45,7 @@ export async function POST(req: Request) {
       price: Number(price) || 0,
       cost: Number(cost) || 0,
       stock: Number(stock) || 0,
+      category: String(category || '').trim() || 'General',
     })
     return NextResponse.json({ product: created.toJSON() }, { status: 201 })
   } catch (e) {
