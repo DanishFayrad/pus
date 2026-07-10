@@ -131,36 +131,51 @@ export default function AdminProducts() {
     }
   }
 
+  const fieldClass =
+    'rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm font-medium focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:bg-slate-900'
+
   return (
-    <div className="max-w-7xl mx-auto p-3 sm:p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl sm:text-2xl font-bold">Products</h1>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={startNew}
-            className="px-3 py-2 text-xs sm:text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium"
-          >
-            + Add product
-          </button>
+    <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Products</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {products.length} product{products.length === 1 ? '' : 's'} in your catalogue.
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={startNew}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:from-blue-500 hover:to-indigo-500 hover:shadow-md cursor-pointer"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Add product
+        </button>
       </div>
 
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
+      {/* Toolbar */}
+      <div className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row">
         <div className="relative flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </span>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products by name, barcode or category…"
-            className="w-full px-3 py-2 pr-20 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Search by name, barcode or category…"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50/60 py-2.5 pl-10 pr-16 text-sm font-medium focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:bg-slate-900"
             autoComplete="off"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-slate-800 hover:underline"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
             >
               Clear
             </button>
@@ -169,7 +184,7 @@ export default function AdminProducts() {
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-52"
+          className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm font-medium focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-950 sm:w-52"
         >
           <option value="">All categories</option>
           {categories.map((c) => (
@@ -181,29 +196,29 @@ export default function AdminProducts() {
       </div>
 
       {editingId && (
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-4 space-y-3">
-          <h2 className="font-semibold">
+        <div className="space-y-4 rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
             {editingId === 'new' ? 'New product' : 'Edit product'}
-          </h2>
-          <div className="grid sm:grid-cols-2 md:grid-cols-6 gap-3">
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-6">
             <input
               placeholder="Barcode"
               value={form.barcode}
               onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+              className={`${fieldClass} font-mono`}
             />
             <input
               placeholder="Name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 sm:col-span-1 md:col-span-2"
+              className={`${fieldClass} sm:col-span-1 md:col-span-2`}
             />
             <input
               placeholder="Category"
               list="product-categories"
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              className={fieldClass}
             />
             <datalist id="product-categories">
               {categories.map((c) => (
@@ -216,7 +231,7 @@ export default function AdminProducts() {
               step="0.01"
               value={form.price}
               onChange={(e) => setForm({ ...form, price: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              className={fieldClass}
             />
             <input
               placeholder="Cost"
@@ -224,26 +239,26 @@ export default function AdminProducts() {
               step="0.01"
               value={form.cost}
               onChange={(e) => setForm({ ...form, cost: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              className={fieldClass}
             />
             <input
               placeholder="Stock"
               type="number"
               value={form.stock}
               onChange={(e) => setForm({ ...form, stock: e.target.value })}
-              className="px-3 py-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              className={fieldClass}
             />
           </div>
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/40">
               {error}
             </div>
           )}
-          <div className="flex gap-2 justify-end">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={cancel}
-              className="px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-700"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
             >
               Cancel
             </button>
@@ -251,65 +266,74 @@ export default function AdminProducts() {
               type="button"
               onClick={save}
               disabled={saving}
-              className="px-3 py-2 text-sm rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white font-medium"
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300 cursor-pointer"
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : 'Save product'}
             </button>
           </div>
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-slate-500 bg-slate-50 dark:bg-slate-900">
+          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-950/40">
             <tr>
-              <th className="px-3 sm:px-4 py-2 font-medium hidden sm:table-cell">Barcode</th>
-              <th className="px-3 sm:px-4 py-2 font-medium">Name</th>
-              <th className="px-3 sm:px-4 py-2 font-medium hidden lg:table-cell">Category</th>
-              <th className="px-3 sm:px-4 py-2 font-medium text-right">Price</th>
-              <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Cost</th>
-              <th className="px-3 sm:px-4 py-2 font-medium text-right hidden md:table-cell">Margin</th>
-              <th className="px-3 sm:px-4 py-2 font-medium text-right">Stock</th>
-              <th className="px-3 sm:px-4 py-2 font-medium" />
+              <th className="hidden px-4 py-3 font-semibold sm:table-cell">Barcode</th>
+              <th className="px-4 py-3 font-semibold">Name</th>
+              <th className="hidden px-4 py-3 font-semibold lg:table-cell">Category</th>
+              <th className="px-4 py-3 font-semibold text-right">Price</th>
+              <th className="hidden px-4 py-3 font-semibold text-right md:table-cell">Cost</th>
+              <th className="hidden px-4 py-3 font-semibold text-right md:table-cell">Margin</th>
+              <th className="px-4 py-3 font-semibold text-right">Stock</th>
+              <th className="px-4 py-3 font-semibold" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {visibleProducts.map((p) => {
               const margin = p.price - p.cost
               return (
-                <tr key={p.id} className={deletingId === p.id ? 'opacity-50 transition-opacity' : ''}>
-                  <td className="px-3 sm:px-4 py-2 font-mono text-xs hidden sm:table-cell">{p.barcode}</td>
-                  <td className="px-3 sm:px-4 py-2">
-                    <div>{p.name}</div>
-                    <div className="text-[10px] text-slate-500 font-mono sm:hidden">{p.barcode}</div>
+                <tr
+                  key={p.id}
+                  className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${deletingId === p.id ? 'opacity-50' : ''}`}
+                >
+                  <td className="hidden px-4 py-3 font-mono text-xs text-slate-500 sm:table-cell">{p.barcode}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-semibold text-slate-800 dark:text-slate-100">{p.name}</div>
+                    <div className="font-mono text-[10px] text-slate-400 sm:hidden">{p.barcode}</div>
                   </td>
-                  <td className="px-3 sm:px-4 py-2 hidden lg:table-cell">
-                    <span className="inline-block rounded-full bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  <td className="hidden px-4 py-3 lg:table-cell">
+                    <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       {p.category || 'General'}
                     </span>
                   </td>
-                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">{fmt(p.price)}</td>
-                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden md:table-cell">{fmt(p.cost)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">{fmt(p.price)}</td>
+                  <td className="hidden whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-500 md:table-cell">{fmt(p.cost)}</td>
                   <td
-                    className={`px-3 sm:px-4 py-2 text-right whitespace-nowrap hidden md:table-cell ${
-                      margin >= 0 ? 'text-emerald-600' : 'text-red-600'
+                    className={`hidden whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums md:table-cell ${
+                      margin >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
                     }`}
                   >
                     {fmt(margin)}
                   </td>
-                  <td
-                    className={`px-3 sm:px-4 py-2 text-right font-medium ${
-                      p.stock <= 5 ? 'text-amber-600' : ''
-                    }`}
-                  >
-                    {p.stock}
+                  <td className="px-4 py-3 text-right">
+                    <span
+                      className={`inline-flex min-w-9 items-center justify-center rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${
+                        p.stock === 0
+                          ? 'bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400'
+                          : p.stock <= 5
+                            ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                      }`}
+                    >
+                      {p.stock}
+                    </span>
                   </td>
-                  <td className="px-3 sm:px-4 py-2 text-right whitespace-nowrap">
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => startEdit(p)}
-                      className="text-blue-600 hover:underline mr-3"
+                      className="mr-3 text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
                     >
                       Edit
                     </button>
@@ -317,7 +341,7 @@ export default function AdminProducts() {
                       type="button"
                       onClick={() => remove(p)}
                       disabled={deletingId === p.id}
-                      className="text-red-600 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline disabled:opacity-50 dark:text-red-400 cursor-pointer"
                     >
                       {deletingId === p.id ? (
                         <>
