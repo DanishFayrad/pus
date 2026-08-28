@@ -85,17 +85,17 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
           </div>
-          <span className="text-xl font-extrabold tracking-tight">SalesPoint</span>
+          <span className="text-xl font-extrabold tracking-tight">Milano Garden</span>
         </div>
 
         <div className="relative max-w-md" style={{ animation: 'fadeInUp 0.6s ease-out' }}>
           <h1 className="text-4xl font-extrabold leading-tight tracking-tight">
-            Run your shop,
+            Milano Garden
             <br />
-            not your paperwork.
+            POS System
           </h1>
           <p className="mt-4 text-blue-100/90 text-sm leading-relaxed">
-            A fast, reliable point-of-sale built for real counters — sales, stock and reporting in one place.
+            A fast, reliable point-of-sale built for counters — sales, stock and reporting in one place.
           </p>
 
           <div className="mt-10 space-y-5">
@@ -116,7 +116,7 @@ export default function LoginPage() {
         </div>
 
         <div className="relative text-xs text-blue-200/70">
-          &copy; {new Date().getFullYear()} SalesPoint. All rights reserved.
+          &copy; {new Date().getFullYear()} Milano Garden. All rights reserved.
         </div>
       </div>
 
@@ -131,8 +131,8 @@ export default function LoginPage() {
               </svg>
             </div>
             <span className="text-xl font-extrabold tracking-tight">
-              <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Sales</span>
-              <span className="text-slate-800 dark:text-white">Point</span>
+              <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Milano</span>
+              <span className="text-slate-800 dark:text-white"> Garden</span>
             </span>
           </div>
 

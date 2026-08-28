@@ -3,16 +3,17 @@ import CameraScanner from '../components/CameraScanner'
 import { useStore } from '../context/StoreContext'
 import { useAuth } from '../context/AuthContext'
 import { formatMoney } from '../lib/currency'
-import { formatDateTime } from '../lib/datetime'
-import { printReceipt } from '../lib/receipt'
+import { formatDateTime, formatDate, pktDayKey } from '../lib/datetime'
+import { printReceipt, printReturnReceipt, printVendorClosingSlip } from '../lib/receipt'
 import type { Product, Sale, SaleItem } from '../types'
+
 interface CartLine {
   productId: string
   quantity: number
 }
 
 export default function PosPage() {
-  const { products, recordSale, addProduct, sales } = useStore()
+  const { products, recordSale, addProduct, sales, refresh } = useStore()
   const { user } = useAuth()
   const [cart, setCart] = useState<CartLine[]>([])
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -21,6 +22,19 @@ export default function PosPage() {
   const [query, setQuery] = useState('')
   const [returnModal, setReturnModal] = useState<Product | null>(null)
   const [returnQty, setReturnQty] = useState(1)
+
+  // Bill Return via Barcode / QR / Lookup State
+  const [billReturnOpen, setBillReturnOpen] = useState(false)
+  const [billSearchQuery, setBillSearchQuery] = useState('')
+  const [selectedSaleForReturn, setSelectedSaleForReturn] = useState<Sale | null>(null)
+  const [returnItemQuantities, setReturnItemQuantities] = useState<Record<string, number>>({})
+  const [processingReturn, setProcessingReturn] = useState(false)
+  const [billReturnError, setBillReturnError] = useState<string | null>(null)
+
+  // Vendor / Counter Closing Modal State
+  const [vendorClosingOpen, setVendorClosingOpen] = useState(false)
+  const [selectedVendor, setSelectedVendor] = useState<string>('All')
+  const [closingDatePreset, setClosingDatePreset] = useState<'today' | 'yesterday' | 'all'>('today')
 
   const emptyProductForm = { barcode: '', name: '', price: '', cost: '', stock: '', category: '' }
   const [productModalOpen, setProductModalOpen] = useState(false)
@@ -38,12 +52,21 @@ export default function PosPage() {
 
   const { returnRequests, createReturnRequest, pollReturns } = useStore()
 
+  // Extract unique categories (Vendors / Counters)
+  const availableVendors = useMemo(() => {
+    const cats = new Set<string>()
+    products.forEach((p) => {
+      if (p.category?.trim()) cats.add(p.category.trim())
+    })
+    return Array.from(cats).sort()
+  }, [products])
+
   // Get all unique customers from sales history
   const uniqueCustomers = useMemo(() => {
     const map = new Map<string, { name: string; phone: string }>()
     if (!sales) return []
     
-    sales.forEach(s => {
+    sales.forEach((s) => {
       if (s.paymentMethod === 'credit' && s.customerName?.trim()) {
         const name = s.customerName.trim()
         const phone = s.customerPhone?.trim() || ''
@@ -59,7 +82,7 @@ export default function PosPage() {
   const filteredCustomers = useMemo(() => {
     const q = customerName.trim().toLowerCase()
     if (!q) return uniqueCustomers.slice(0, 5)
-    return uniqueCustomers.filter(c => 
+    return uniqueCustomers.filter((c) => 
       c.name.toLowerCase().includes(q) || 
       c.phone.includes(q)
     ).slice(0, 5)
@@ -88,14 +111,15 @@ export default function PosPage() {
 
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return products.slice(0, 8)
+    if (!q) return products.slice(0, 12)
     return products
       .filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          p.barcode.toLowerCase().includes(q),
+          p.barcode.toLowerCase().includes(q) ||
+          (p.category && p.category.toLowerCase().includes(q)),
       )
-      .slice(0, 24)
+      .slice(0, 30)
   }, [products, query])
 
   const lines = cart.map((line) => {
@@ -110,11 +134,52 @@ export default function PosPage() {
 
   const flash = (kind: 'ok' | 'err', text: string) => {
     setMessage({ kind, text })
-    setTimeout(() => setMessage(null), 2500)
+    setTimeout(() => setMessage(null), 3000)
+  }
+
+  // Find sale by invoice barcode/ID
+  const findSaleByInput = (input: string): Sale | undefined => {
+    const raw = input.trim().replace(/^INV-|^SALE-|^INV:|^#/, '').trim().toLowerCase()
+    if (!raw) return undefined
+
+    return sales.find((s) => {
+      const idLower = s.id.toLowerCase()
+      const suffixLower = s.id.slice(-8).toLowerCase()
+      return idLower === raw || suffixLower === raw || idLower.endsWith(raw)
+    })
+  }
+
+  // Handle invoice barcode scanned or typed
+  const handleScannedOrTypedInput = (raw: string): boolean => {
+    const trimmed = raw.trim()
+    if (!trimmed) return true
+
+    // Check if input looks like an invoice barcode / QR code
+    const isInvoiceFormat = 
+      trimmed.toUpperCase().startsWith('INV-') || 
+      trimmed.toUpperCase().startsWith('SALE-') || 
+      trimmed.toUpperCase().startsWith('INV:') ||
+      trimmed.toUpperCase().startsWith('RET-')
+
+    const matchedSale = findSaleByInput(trimmed)
+
+    if (isInvoiceFormat || (matchedSale && trimmed.length >= 8 && !products.some((p) => p.barcode === trimmed))) {
+      if (matchedSale) {
+        openSaleForReturn(matchedSale)
+        setQuery('')
+        flash('ok', `Invoice #${matchedSale.id.slice(-8).toUpperCase()} loaded for return`)
+        return true
+      } else {
+        flash('err', `Invoice "${trimmed}" not found in system`)
+        return true
+      }
+    }
+
+    // Otherwise treat as normal product barcode
+    return addByBarcode(trimmed)
   }
 
   // Resolve a typed/scanned value to a single product.
-  // Tries exact barcode, then exact name, then a unique partial match on name or barcode.
   const resolveProduct = (input: string): Product | undefined => {
     const q = input.trim().toLowerCase()
     if (!q) return undefined
@@ -128,7 +193,6 @@ export default function PosPage() {
     return matches.length === 1 ? matches[0] : undefined
   }
 
-  // Returns false when the input text should be kept (ambiguous match), true otherwise.
   const addByBarcode = (input: string): boolean => {
     const raw = input.trim()
     const product = resolveProduct(raw)
@@ -168,7 +232,6 @@ export default function PosPage() {
 
   const openNewProduct = () => {
     const q = query.trim()
-    // If what they typed looks like a barcode (digits), prefill barcode; otherwise prefill name.
     const looksLikeBarcode = q.length > 0 && /^\d+$/.test(q)
     setProductForm({
       ...emptyProductForm,
@@ -289,8 +352,148 @@ export default function PosPage() {
     setLastSale(sale)
     setCart([])
     flash('ok', `Sale complete: ${formatMoney(sale.total)}`)
-    printReceipt(sale)
+    void printReceipt(sale)
   }
+
+  // Open Bill Return Modal for a specific sale
+  const openSaleForReturn = (sale: Sale) => {
+    setSelectedSaleForReturn(sale)
+    const initialQty: Record<string, number> = {}
+    sale.items.forEach((item) => {
+      initialQty[item.productId] = 0
+    })
+    setReturnItemQuantities(initialQty)
+    setBillReturnError(null)
+    setBillReturnOpen(true)
+  }
+
+  // Calculate total refund amount in the Bill Return modal
+  const currentTotalRefund = useMemo(() => {
+    if (!selectedSaleForReturn) return 0
+    return selectedSaleForReturn.items.reduce((sum, item) => {
+      const q = returnItemQuantities[item.productId] || 0
+      return sum + q * item.price
+    }, 0)
+  }, [selectedSaleForReturn, returnItemQuantities])
+
+  // Select all items for full refund
+  const selectAllForReturn = () => {
+    if (!selectedSaleForReturn) return
+    const allQty: Record<string, number> = {}
+    selectedSaleForReturn.items.forEach((item) => {
+      allQty[item.productId] = item.quantity
+    })
+    setReturnItemQuantities(allQty)
+  }
+
+  // Process Bill Return via API
+  const handleProcessBillReturn = async () => {
+    if (!selectedSaleForReturn || !user) return
+    const itemsToReturn = selectedSaleForReturn.items
+      .filter((i) => (returnItemQuantities[i.productId] || 0) > 0)
+      .map((i) => ({
+        productId: i.productId,
+        quantity: returnItemQuantities[i.productId],
+      }))
+
+    if (itemsToReturn.length === 0) {
+      setBillReturnError('Please select at least 1 item quantity to return.')
+      return
+    }
+
+    setProcessingReturn(true)
+    setBillReturnError(null)
+
+    try {
+      const res = await fetch('/api/returns/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          saleId: selectedSaleForReturn.id,
+          items: itemsToReturn,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to process return')
+      }
+
+      // Print dedicated return slip
+      void printReturnReceipt({
+        receiptNo: `#${selectedSaleForReturn.id.slice(-8).toUpperCase()}`,
+        date: new Date(),
+        cashierName: user.name,
+        customerName: selectedSaleForReturn.customerName,
+        paymentMethod: selectedSaleForReturn.paymentMethod,
+        items: data.items,
+        totalRefund: data.totalRefund,
+      })
+
+      flash('ok', `Return processed! Refund amount: ${formatMoney(data.totalRefund)}`)
+      setBillReturnOpen(false)
+      setSelectedSaleForReturn(null)
+      await refresh()
+    } catch (e) {
+      setBillReturnError(e instanceof Error ? e.message : 'Return failed')
+    } finally {
+      setProcessingReturn(false)
+    }
+  }
+
+  // Vendor Closing Data Computation
+  const vendorClosingData = useMemo(() => {
+    const todayStr = pktDayKey(new Date())
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = pktDayKey(yesterday)
+
+    const dateFilteredSales = sales.filter((s) => {
+      const day = pktDayKey(s.date)
+      if (closingDatePreset === 'today') return day === todayStr
+      if (closingDatePreset === 'yesterday') return day === yesterdayStr
+      return true
+    })
+
+    const itemMap = new Map<string, { name: string; quantity: number; revenue: number }>()
+    let totalQty = 0
+    let totalRevenue = 0
+    let totalCash = 0
+    let totalCredit = 0
+
+    dateFilteredSales.forEach((s) => {
+      s.items.forEach((i) => {
+        const prod = productById.get(i.productId)
+        const category = prod?.category || 'General'
+        
+        if (selectedVendor === 'All' || category.toLowerCase() === selectedVendor.toLowerCase()) {
+          const lineRevenue = i.price * i.quantity
+          totalQty += i.quantity
+          totalRevenue += lineRevenue
+
+          if (s.paymentMethod === 'credit') {
+            totalCredit += lineRevenue
+          } else {
+            totalCash += lineRevenue
+          }
+
+          const existing = itemMap.get(i.productId) || { name: i.name, quantity: 0, revenue: 0 }
+          existing.quantity += i.quantity
+          existing.revenue += lineRevenue
+          itemMap.set(i.productId, existing)
+        }
+      })
+    })
+
+    return {
+      items: Array.from(itemMap.values()).sort((a, b) => b.revenue - a.revenue),
+      totalQty,
+      totalRevenue,
+      totalCash,
+      totalCredit,
+      dateLabel: closingDatePreset === 'today' ? `Today (${formatDate(new Date())})` : closingDatePreset === 'yesterday' ? `Yesterday (${formatDate(yesterday)})` : 'All Time',
+    }
+  }, [sales, products, productById, selectedVendor, closingDatePreset])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
@@ -317,7 +520,7 @@ export default function PosPage() {
       } else {
         const raw = query.trim()
         if (raw) {
-          const keep = addByBarcode(raw) === false
+          const keep = handleScannedOrTypedInput(raw) === false
           if (!keep) {
             setQuery('')
             setActiveIndex(-1)
@@ -330,7 +533,7 @@ export default function PosPage() {
     }
   }
 
-  const shouldAutofocus = !productModalOpen && !returnModal && !scannerOpen && !checkoutModalOpen
+  const shouldAutofocus = !productModalOpen && !returnModal && !scannerOpen && !checkoutModalOpen && !billReturnOpen && !vendorClosingOpen
 
   useEffect(() => {
     if (shouldAutofocus) {
@@ -350,38 +553,70 @@ export default function PosPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-3 sm:p-4 grid lg:grid-cols-[1fr_400px] gap-4 sm:gap-6">
-      <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-100 dark:border-slate-700/50 p-4 sm:p-6 flex flex-col gap-6">
+      <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-200/80 dark:border-slate-700/60 p-4 sm:p-6 flex flex-col gap-6">
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 tracking-tight">Scan or enter barcode</h2>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Scan Barcode / Search Product</h2>
+            
+            {/* Sleek Modern Action Toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSaleForReturn(null)
+                  setBillSearchQuery('')
+                  setBillReturnOpen(true)
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 text-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-rose-950/30 dark:hover:border-rose-900 dark:hover:text-rose-400 transition-all duration-150 cursor-pointer shadow-2xs active:scale-[0.98]"
+                title="Scan receipt barcode to return items or refund bill"
+              >
+                <svg className="w-3.5 h-3.5 text-rose-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 15v-1a4 4 0 00-4-4H4m0 0l3-3m-3 3l3 3m13-4v5a2 2 0 01-2 2H6" />
+                </svg>
+                <span>Bill Return</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setVendorClosingOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 text-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-amber-950/30 dark:hover:border-amber-900 dark:hover:text-amber-400 transition-all duration-150 cursor-pointer shadow-2xs active:scale-[0.98]"
+                title="View & Print Vendor / Counter Daily Closing"
+              >
+                <svg className="w-3.5 h-3.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Vendor Closing</span>
+              </button>
+
               {user?.role === 'admin' && (
                 <button
                   type="button"
                   onClick={openNewProduct}
-                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-blue-200 bg-blue-50/50 text-blue-700 hover:bg-blue-100/70 transition-all duration-200 cursor-pointer shadow-2xs hover:shadow-xs active:scale-[0.98]"
+                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/60 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300 transition-all duration-150 cursor-pointer shadow-2xs active:scale-[0.98]"
                   title="Create a new product"
                 >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
                   </svg>
-                  New product
+                  <span>New Product</span>
                 </button>
               )}
+
               <button
                 type="button"
                 onClick={() => setScannerOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-all duration-200 cursor-pointer shadow-2xs hover:shadow-xs active:scale-[0.98]"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-all duration-150 cursor-pointer shadow-2xs active:scale-[0.98]"
                 title="Scan with device camera"
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 9V7a2 2 0 0 1 2-2h2M17 5h2a2 2 0 0 1 2 2v2M21 15v2a2 2 0 0 1-2 2h-2M7 19H5a2 2 0 0 1-2-2v-2"/>
                   <circle cx="12" cy="12" r="3"/>
                 </svg>
-                Camera
+                <span>Camera</span>
               </button>
             </div>
           </div>
+
           <div className="relative flex gap-2.5">
             <div className="relative flex-1">
               <input
@@ -390,8 +625,8 @@ export default function PosPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onBlur={handleBlur}
-                placeholder="Scan, or type a barcode / product name..."
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-base placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all duration-200"
+                placeholder="Scan item barcode OR receipt barcode (INV-...) / search product..."
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-base placeholder:font-sans placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm transition-all duration-200"
                 inputMode="text"
                 autoComplete="off"
               />
@@ -418,17 +653,19 @@ export default function PosPage() {
                       >
                         <div className="min-w-0 pr-3 text-left">
                           <div className="text-sm font-semibold truncate text-slate-800 dark:text-slate-100">{p.name}</div>
-                          <div className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{p.barcode}</div>
+                          <div className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                            {p.barcode} • <span className="text-blue-600 dark:text-blue-400 font-semibold">{p.category || 'General'}</span>
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatMoney(p.price)}</div>
                           <div className="text-[10px] font-bold mt-1">
                             {p.stock <= 0 ? (
-                              <span className="text-red-505 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded-md">Out of stock</span>
+                              <span className="text-rose-600 bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded-md">Out of stock</span>
                             ) : p.stock <= 5 ? (
                               <span className="text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded-md">Low: {p.stock}</span>
                             ) : (
-                              <span className="text-slate-550 bg-slate-50 dark:bg-slate-900/50 px-1.5 py-0.5 rounded-md">Stock: {p.stock}</span>
+                              <span className="text-slate-500 bg-slate-50 dark:bg-slate-900/50 px-1.5 py-0.5 rounded-md">Stock: {p.stock}</span>
                             )}
                           </div>
                         </div>
@@ -443,7 +680,7 @@ export default function PosPage() {
               onClick={() => {
                 const raw = query.trim()
                 if (raw) {
-                  const keep = addByBarcode(raw) === false
+                  const keep = handleScannedOrTypedInput(raw) === false
                   if (!keep) {
                     setQuery('')
                     setActiveIndex(-1)
@@ -452,16 +689,15 @@ export default function PosPage() {
               }}
               className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold shadow-sm hover:shadow transition-all duration-200 active:scale-[0.98] cursor-pointer shrink-0"
             >
-              Add
+              Add / Scan
             </button>
           </div>
           {message && (
-
             <div
               className={`mt-3 text-sm px-4 py-3 rounded-xl border flex items-center gap-2 animate-[slideDown_0.2s_ease-out] ${
                 message.kind === 'ok'
                   ? 'bg-emerald-50/50 border-emerald-100 text-emerald-800 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-300'
-                  : 'bg-red-50/50 border-red-100 text-red-700 dark:bg-red-950/20 dark:border-red-900/30 dark:text-red-300'
+                  : 'bg-rose-50/50 border-rose-100 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-300'
               }`}
             >
               {message.kind === 'ok' ? (
@@ -469,7 +705,7 @@ export default function PosPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
-                <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <svg className="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               )}
@@ -495,12 +731,14 @@ export default function PosPage() {
               </button>
             )}
           </div>
+
           {filteredProducts.length === 0 ? (
             <div className="text-sm text-slate-500 py-10 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/20">
               No products match &ldquo;{query}&rdquo;
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            /* Refined Responsive Auto-Fill Grid for Products */
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3.5">
               {filteredProducts.map((p) => (
                 <div
                   key={p.id}
@@ -515,28 +753,46 @@ export default function PosPage() {
                       addByBarcode(p.barcode)
                     }
                   }}
-                  className={`flex flex-col justify-between p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800 transition-all duration-200 ${
+                  className={`group relative flex flex-col justify-between p-4 rounded-2xl border border-slate-200/90 dark:border-slate-700/70 bg-white dark:bg-slate-900 transition-all duration-200 ${
                     p.stock > 0
-                      ? 'cursor-pointer hover:border-blue-400 hover:shadow-md hover:scale-[1.01] dark:hover:bg-blue-900/5'
-                      : 'opacity-60 cursor-not-allowed'
+                      ? 'cursor-pointer hover:border-blue-500 hover:shadow-md hover:-translate-y-0.5'
+                      : 'opacity-60 cursor-not-allowed bg-slate-50/50 dark:bg-slate-900/40'
                   }`}
                 >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate" title={p.name}>{p.name}</div>
-                    <div className="flex items-baseline justify-between mt-1.5">
-                      <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatMoney(p.price)}</span>
-                      <span className="text-[10px] font-medium text-slate-400">
-                        {p.stock <= 0 ? (
-                          <span className="text-[10px] font-bold text-red-500 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded-md">Out of stock</span>
-                        ) : p.stock <= 5 ? (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-1.5 py-0.5 rounded-md">Low: {p.stock}</span>
-                        ) : (
-                          <span>Stock: <span className="font-semibold text-slate-600 dark:text-slate-350">{p.stock}</span></span>
-                        )}
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate flex-1" title={p.name}>
+                        {p.name}
+                      </div>
+                      <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        {p.category || 'General'}
                       </span>
                     </div>
+
+                    <div className="flex items-center justify-between gap-1 pt-1">
+                      <div className="text-base font-black text-slate-900 dark:text-white whitespace-nowrap">
+                        {formatMoney(p.price)}
+                      </div>
+
+                      <div className="shrink-0">
+                        {p.stock <= 0 ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-900/50">
+                            Out of stock
+                          </span>
+                        ) : p.stock <= 5 ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-900/50">
+                            Low: {p.stock}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[10px] font-semibold rounded-md bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            Stock: {p.stock}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex gap-2 mt-3.5">
+
+                  <div className="flex gap-2 mt-4 pt-2 border-t border-slate-100 dark:border-slate-800/80">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -544,8 +800,11 @@ export default function PosPage() {
                         addByBarcode(p.barcode)
                       }}
                       disabled={p.stock <= 0}
-                      className="flex-1 py-2 px-2.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-600 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition duration-200 cursor-pointer text-center"
+                      className="flex-1 py-2 px-3 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-500 text-white disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition duration-150 cursor-pointer text-center shadow-2xs flex items-center justify-center gap-1"
                     >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                      </svg>
                       Sell
                     </button>
                     <button
@@ -555,7 +814,8 @@ export default function PosPage() {
                         setReturnModal(p)
                         setReturnQty(1)
                       }}
-                      className="flex-1 py-2 px-2.5 text-xs font-semibold rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-650 hover:text-white dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white transition duration-200 cursor-pointer text-center"
+                      className="py-2 px-3 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white hover:bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition duration-150 cursor-pointer text-center"
+                      title="Return product"
                     >
                       Return
                     </button>
@@ -572,11 +832,11 @@ export default function PosPage() {
         onClose={() => setScannerOpen(false)}
         onDetected={(code) => {
           setScannerOpen(false)
-          addByBarcode(code)
+          handleScannedOrTypedInput(code)
         }}
       />
 
-      <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-100 dark:border-slate-700/50 p-4 sm:p-5 flex flex-col h-fit lg:h-[calc(100vh-6.5rem)] lg:sticky lg:top-18">
+      <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-200/80 dark:border-slate-700/60 p-4 sm:p-5 flex flex-col h-fit lg:h-[calc(100vh-6.5rem)] lg:sticky lg:top-18">
         <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-700/50 pb-3">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -593,7 +853,7 @@ export default function PosPage() {
             <button
               type="button"
               onClick={clearCart}
-              className="text-xs font-semibold text-red-500 hover:text-red-600 hover:underline transition cursor-pointer"
+              className="text-xs font-semibold text-rose-500 hover:text-rose-600 hover:underline transition cursor-pointer"
             >
               Clear All
             </button>
@@ -609,7 +869,7 @@ export default function PosPage() {
                 </svg>
               </div>
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Your cart is empty</p>
-              <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Scan a barcode or search a product to begin selling</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-[200px]">Scan an item barcode or search a product to sell</p>
             </div>
           )}
           {lines.map(({ line, product }) => {
@@ -649,7 +909,7 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => remove(product.id)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                     title="Remove item"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -680,53 +940,403 @@ export default function PosPage() {
         {lastSale && (
           <div className="mt-4 text-xs bg-slate-50/50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800/80 rounded-xl p-3.5 flex flex-col gap-1.5">
             <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-350">
-              <span className="truncate">Receipt #…{lastSale.id.slice(-8)}</span>
+              <span className="truncate">Receipt #{lastSale.id.slice(-8).toUpperCase()}</span>
               <span className="text-[10px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Saved</span>
             </div>
             <div className="text-slate-400 mt-1 flex justify-between">
               <span>{formatDateTime(lastSale.date)}</span>
               <span>{lastSale.items.reduce((s, i) => s + i.quantity, 0)} items</span>
             </div>
-            <div className="flex justify-between border-t border-slate-100/50 dark:border-slate-800/40 pt-1.5 mt-1 text-slate-505 shadow-2xs">
+            <div className="flex justify-between border-t border-slate-100/50 dark:border-slate-800/40 pt-1.5 mt-1 text-slate-500 shadow-2xs">
               <span>Total Paid:</span>
               <span className="font-bold text-slate-800 dark:text-slate-200">{formatMoney(lastSale.total)}</span>
             </div>
             <button
               type="button"
-              onClick={() => printReceipt(lastSale)}
+              onClick={() => void printReceipt(lastSale)}
               className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50/50 text-blue-750 hover:bg-blue-100/70 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
-              Print Receipt (Perchi)
+              Print Receipt
             </button>
           </div>
         )}
-        {returnRequests.filter(r => r.cashierId === user?.id).length > 0 && (
-          <div className="mt-5 border-t border-slate-100 dark:border-slate-800/80 pt-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">My Returns</h3>
-            <div className="space-y-2">
-              {returnRequests.filter(r => r.cashierId === user?.id).slice(0, 5).map(r => (
-                <div key={r.id} className="text-xs p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/30 hover:border-slate-200 transition duration-150">
-                  <div className="truncate flex-1 pr-2 text-slate-600 dark:text-slate-350">
-                    <span className="font-bold text-slate-800 dark:text-slate-100">{r.quantity}×</span> {r.productName}
-                  </div>
-                  <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                    r.status === 'pending'
-                      ? 'bg-amber-50 text-amber-700 border border-amber-200/50'
-                      : r.status === 'approved'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/50'
-                        : 'bg-red-50 text-red-700 border border-red-200/50'
-                  }`}>
-                    {r.status}
+      </section>
+
+      {/* Bill Return & Refund Modal */}
+      {billReturnOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-2xl border border-slate-100 dark:border-slate-700/50 max-h-[90vh] flex flex-col transform animate-[scaleUp_0.15s_ease-out]">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-3.5 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                  Bill Return & Item Refund
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Scan receipt barcode or select invoice to process returns & restore stock.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBillReturnOpen(false)
+                  setSelectedSaleForReturn(null)
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-800 flex items-center justify-center text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {!selectedSaleForReturn ? (
+              <div className="space-y-4 flex-1 overflow-y-auto">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Scan Receipt Barcode / Type Invoice #
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      value={billSearchQuery}
+                      onChange={(e) => setBillSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          const sale = findSaleByInput(billSearchQuery)
+                          if (sale) {
+                            openSaleForReturn(sale)
+                          } else {
+                            setBillReturnError(`Invoice "${billSearchQuery}" not found.`)
+                          }
+                        }
+                      }}
+                      placeholder="e.g. INV-12345678 or last 8 digits..."
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition shadow-2xs placeholder:font-sans placeholder:text-slate-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sale = findSaleByInput(billSearchQuery)
+                        if (sale) {
+                          openSaleForReturn(sale)
+                        } else {
+                          setBillReturnError(`Invoice "${billSearchQuery}" not found.`)
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      Find
+                    </button>
                   </div>
                 </div>
-              ))}
+
+                {billReturnError && (
+                  <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl px-3.5 py-2.5">
+                    ⚠️ {billReturnError}
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Recent Sales & Invoices</h4>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/60 border border-slate-200 dark:border-slate-700 rounded-xl max-h-64 overflow-y-auto">
+                    {sales.slice(0, 10).map((s) => (
+                      <div
+                        key={s.id}
+                        onClick={() => openSaleForReturn(s)}
+                        className="p-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center justify-between cursor-pointer transition"
+                      >
+                        <div>
+                          <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                            #{s.id.slice(-8).toUpperCase()} • <span className="font-normal text-slate-500 text-xs">{formatDateTime(s.date)}</span>
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            Cashier: {s.cashierName} {s.customerName ? `• Customer: ${s.customerName}` : ''} • ({s.items.length} items)
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold text-slate-900 dark:text-white">{formatMoney(s.total)}</div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                            {s.paymentMethod === 'credit' ? 'Credit' : 'Cash'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto space-y-4">
+                {/* Sale Details Banner */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs text-slate-400 font-bold uppercase">Original Invoice</div>
+                    <div className="text-base font-extrabold text-slate-800 dark:text-slate-100">#{selectedSaleForReturn.id.slice(-8).toUpperCase()}</div>
+                    <div className="text-xs text-slate-500">{formatDateTime(selectedSaleForReturn.date)} • Cashier: {selectedSaleForReturn.cashierName}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-slate-400 font-bold uppercase">Original Total</div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{formatMoney(selectedSaleForReturn.total)}</div>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase">{selectedSaleForReturn.paymentMethod}</span>
+                  </div>
+                </div>
+
+                {/* Items to Return Table */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Purchased Items on Bill</h4>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllForReturn}
+                        className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                      >
+                        Return Full Bill
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const reset: Record<string, number> = {}
+                          selectedSaleForReturn.items.forEach((i) => { reset[i.productId] = 0 })
+                          setReturnItemQuantities(reset)
+                        }}
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 dark:border-slate-700 rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 overflow-hidden">
+                    {selectedSaleForReturn.items.map((item) => {
+                      const curReturn = returnItemQuantities[item.productId] || 0
+                      return (
+                        <div key={item.productId} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-750">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{item.name}</div>
+                            <div className="text-xs text-slate-400">
+                              Unit Price: {formatMoney(item.price)} • Sold: <strong className="text-slate-700 dark:text-slate-300">{item.quantity}</strong>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            {/* Quantity Selector */}
+                            <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-lg p-0.5 bg-white dark:bg-slate-900 shadow-2xs">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReturnItemQuantities((prev) => ({
+                                    ...prev,
+                                    [item.productId]: Math.max(0, (prev[item.productId] || 0) - 1),
+                                  }))
+                                }}
+                                className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                              >
+                                −
+                              </button>
+                              <span className="w-8 text-center text-xs font-bold text-rose-600 dark:text-rose-400">
+                                {curReturn}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReturnItemQuantities((prev) => ({
+                                    ...prev,
+                                    [item.productId]: Math.min(item.quantity, (prev[item.productId] || 0) + 1),
+                                  }))
+                                }}
+                                className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition cursor-pointer"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            <div className="text-right w-24">
+                              <div className="text-xs text-slate-400">Refund:</div>
+                              <div className="text-sm font-bold text-rose-600 dark:text-rose-400">
+                                {formatMoney(curReturn * item.price)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {billReturnError && (
+                  <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl px-3.5 py-2.5">
+                    ⚠️ {billReturnError}
+                  </div>
+                )}
+
+                {/* Refund Total Calculation Footer */}
+                <div className="bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/40 rounded-xl p-4 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold uppercase text-rose-700 dark:text-rose-400">Total Refund to Customer</div>
+                    <div className="text-xs text-slate-500">Items will be instantly restocked into inventory</div>
+                  </div>
+                  <div className="text-2xl font-black text-rose-600 dark:text-rose-300 tracking-tight">
+                    {formatMoney(currentTotalRefund)}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSaleForReturn(null)}
+                    className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
+                  >
+                    ← Back to Invoices
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleProcessBillReturn}
+                    disabled={processingReturn || currentTotalRefund <= 0}
+                    className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-bold transition cursor-pointer shadow-sm hover:shadow active:scale-98 flex items-center justify-center gap-2"
+                  >
+                    {processingReturn ? (
+                      'Processing Return…'
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Process Return & Print Slip ({formatMoney(currentTotalRefund)})
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Vendor / Counter Daily Closing Modal */}
+      {vendorClosingOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-xl border border-slate-100 dark:border-slate-700/50 max-h-[90vh] flex flex-col transform animate-[scaleUp_0.15s_ease-out]">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                  Vendor / Counter Daily Closing
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Filter sales by counter (e.g. Barbecue, Ice Cream, Tea) and print closing slip.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVendorClosingOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-slate-800 flex items-center justify-center text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Vendor & Period Selectors */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Select Vendor / Counter</label>
+                <select
+                  value={selectedVendor}
+                  onChange={(e) => setSelectedVendor(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="All">All Vendors</option>
+                  {availableVendors.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Closing Period</label>
+                <select
+                  value={closingDatePreset}
+                  onChange={(e) => setClosingDatePreset(e.target.value as 'today' | 'yesterday' | 'all')}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="all">All Time</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-3 gap-2.5 mb-4">
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-slate-750 text-center">
+                <div className="text-[10px] uppercase font-bold text-slate-400">Total Units</div>
+                <div className="text-lg font-black text-slate-900 dark:text-white">{vendorClosingData.totalQty}</div>
+              </div>
+              <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-100 dark:border-emerald-900/30 text-center">
+                <div className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400">Cash Collection</div>
+                <div className="text-lg font-black text-emerald-700 dark:text-emerald-300">{formatMoney(vendorClosingData.totalCash)}</div>
+              </div>
+              <div className="bg-amber-50/60 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-100 dark:border-amber-900/30 text-center">
+                <div className="text-[10px] uppercase font-bold text-amber-700 dark:text-amber-400">Net Sales</div>
+                <div className="text-lg font-black text-amber-700 dark:text-amber-300">{formatMoney(vendorClosingData.totalRevenue)}</div>
+              </div>
+            </div>
+
+            {/* Item-by-item breakdown */}
+            <div className="flex-1 overflow-y-auto mb-4 border border-slate-200 dark:border-slate-700 rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60">
+              <div className="bg-slate-50 dark:bg-slate-900/80 px-3.5 py-2 flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
+                <span>Item Name</span>
+                <span>Sold Qty & Revenue</span>
+              </div>
+              {vendorClosingData.items.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  No sales recorded for this vendor in the selected period.
+                </div>
+              ) : (
+                vendorClosingData.items.map((it, idx) => (
+                  <div key={idx} className="px-3.5 py-2.5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-750 text-xs">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{it.name}</span>
+                    <span className="font-mono">
+                      <strong className="text-slate-700 dark:text-slate-300">{it.quantity} units</strong> • <span className="font-bold text-amber-600 dark:text-amber-400">{formatMoney(it.revenue)}</span>
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setVendorClosingOpen(false)}
+                className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  printVendorClosingSlip({
+                    vendorName: selectedVendor === 'All' ? 'ALL VENDORS' : selectedVendor.toUpperCase(),
+                    dateRangeLabel: vendorClosingData.dateLabel,
+                    generatedBy: user?.name || 'Cashier',
+                    items: vendorClosingData.items,
+                    totalQty: vendorClosingData.totalQty,
+                    totalRevenue: vendorClosingData.totalRevenue,
+                    totalCash: vendorClosingData.totalCash,
+                    totalCredit: vendorClosingData.totalCredit,
+                  })
+                }}
+                disabled={vendorClosingData.items.length === 0}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold transition cursor-pointer shadow-sm hover:shadow flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Print Vendor Closing Slip ({selectedVendor})
+              </button>
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
       {returnModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-[fadeIn_0.15s_ease-out]">
@@ -794,7 +1404,7 @@ export default function PosPage() {
                   value={productForm.name}
                   onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
                   placeholder="Product name"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs placeholder:text-slate-405"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs placeholder:text-slate-400"
                 />
               </div>
               <div className="grid grid-cols-3 gap-3.5">
@@ -832,12 +1442,12 @@ export default function PosPage() {
                 </div>
               </div>
               <div className="mt-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Category</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Category (Vendor / Counter)</label>
                 <input
                   list="pos-product-categories"
                   value={productForm.category}
                   onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                  placeholder="General"
+                  placeholder="e.g. Barbecue, Ice Cream, Tea..."
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
                 />
                 <datalist id="pos-product-categories">
@@ -848,7 +1458,7 @@ export default function PosPage() {
               </div>
             </div>
             {productError && (
-              <div className="mt-4 text-xs font-medium text-red-650 bg-red-50 dark:bg-red-950/20 border border-red-200/50 rounded-xl px-4 py-3">
+              <div className="mt-4 text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3">
                 {productError}
               </div>
             )}
@@ -890,18 +1500,18 @@ export default function PosPage() {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('cash')}
-                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-205 cursor-pointer text-center ${
+                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-200 cursor-pointer text-center ${
                     paymentMethod === 'cash'
                       ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-300 shadow-xs'
                       : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-350 dark:hover:bg-slate-800'
                   }`}
                 >
-                  💵 Cash (Naqad)
+                  💵 Cash
                 </button>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('credit')}
-                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-205 cursor-pointer text-center ${
+                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-200 cursor-pointer text-center ${
                     paymentMethod === 'credit'
                       ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-300 shadow-xs'
                       : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-350 dark:hover:bg-slate-800'
@@ -916,7 +1526,7 @@ export default function PosPage() {
               <div className="space-y-4 mb-5 animate-[fadeIn_0.15s_ease-out]">
                 <div className="relative">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Customer Name (Grahak Ka Naam) <span className="text-red-500">*</span>
+                    Customer Name <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -945,7 +1555,7 @@ export default function PosPage() {
                         >
                           <span className="text-sm font-bold text-slate-850 dark:text-slate-200">{cust.name}</span>
                           {cust.phone && (
-                            <span className="text-xs text-slate-405 dark:text-slate-400 font-medium">{cust.phone}</span>
+                            <span className="text-xs text-slate-400 font-medium">{cust.phone}</span>
                           )}
                         </button>
                       ))}
@@ -954,7 +1564,7 @@ export default function PosPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Customer Phone (Mobile Number)
+                    Customer Phone
                   </label>
                   <input
                     type="text"
@@ -968,7 +1578,7 @@ export default function PosPage() {
             )}
 
             {checkoutError && (
-              <div className="text-xs font-medium text-red-650 bg-red-50 dark:bg-red-950/20 border border-red-200/50 rounded-xl px-4 py-3 mb-4">
+              <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3 mb-4">
                 ⚠️ {checkoutError}
               </div>
             )}

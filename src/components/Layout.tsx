@@ -53,7 +53,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const match = [...links]
       .sort((a, b) => b.href.length - a.href.length)
       .find((n) => pathname === n.href || pathname?.startsWith(n.href + '/'))
-    return match?.label ?? 'SalesPoint'
+    return match?.label ?? 'Milano Garden'
   }, [links, pathname])
 
   // Poll for new return requests so the admin gets a near-real-time notification.
@@ -94,8 +94,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </svg>
       </div>
       <span className="text-lg font-extrabold tracking-tight">
-        <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Sales</span>
-        <span className="text-slate-800 dark:text-white">Point</span>
+        <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Milano</span>
+        <span className="text-slate-800 dark:text-white"> Garden</span>
       </span>
     </div>
   )
