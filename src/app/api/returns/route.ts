@@ -13,11 +13,17 @@ export async function GET() {
     await dbConnect()
     let requests
     if (session.role === 'admin') {
-      requests = await ReturnRequest.find().sort({ createdAt: -1 })
+      requests = await ReturnRequest.find().sort({ createdAt: -1 }).lean()
     } else {
-      requests = await ReturnRequest.find({ cashierId: session.id }).sort({ createdAt: -1 })
+      requests = await ReturnRequest.find({ cashierId: session.id }).sort({ createdAt: -1 }).lean()
     }
-    return NextResponse.json({ returnRequests: requests.map((r) => r.toJSON()) })
+    return NextResponse.json({
+      returnRequests: requests.map((r: any) => ({
+        ...r,
+        id: String(r._id),
+        _id: undefined,
+      })),
+    })
   } catch (e) {
     console.error('GET /returns error', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

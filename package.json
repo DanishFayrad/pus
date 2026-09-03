@@ -10,7 +10,9 @@
     "lint": "next lint",
     "db:clean-fake": "node clean_fake_seed.cjs",
     "db:clean-fake:delete": "node clean_fake_seed.cjs --delete",
-    "db:clean-fake:purge": "node clean_fake_seed.cjs --purge-all"
+    "db:clean-fake:purge": "node clean_fake_seed.cjs --purge-all",
+    "db:backup": "node scripts/backup.cjs",
+    "db:restore": "node scripts/restore.cjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",

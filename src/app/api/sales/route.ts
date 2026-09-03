@@ -12,14 +12,92 @@ interface IncomingItem {
   quantity: number
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
+    const { searchParams } = new URL(req.url)
+    const limitParam = searchParams.get('limit')
+    const all = searchParams.get('all') === 'true'
+    const limit = all ? 0 : Math.min(1000, Math.max(1, parseInt(limitParam || '300', 10)))
+
+    const startDateParam = searchParams.get('startDate')
+    const endDateParam = searchParams.get('endDate')
+    const paymentMethod = searchParams.get('paymentMethod')
+
     await dbConnect()
-    const sales = await Sale.find().sort({ date: -1 })
-    return NextResponse.json({ sales: sales.map((s) => s.toJSON()) })
+
+    const filter: Record<string, any> = {}
+    if (startDateParam || endDateParam) {
+      filter.date = {}
+      if (startDateParam) filter.date.$gte = new Date(startDateParam)
+      if (endDateParam) filter.date.$lte = new Date(endDateParam)
+    }
+    if (paymentMethod && paymentMethod !== 'all') {
+      filter.paymentMethod = paymentMethod
+    }
+
+    let query = Sale.find(filter).sort({ date: -1 }).lean()
+    if (limit > 0) {
+      query = query.limit(limit)
+    }
+
+    // Run query and aggregations in parallel for maximum speed
+    const [salesDocs, [statsResult], [todayResult]] = await Promise.all([
+      query,
+      Sale.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$total' },
+            totalCost: { $sum: '$cost' },
+            profit: { $sum: '$profit' },
+            salesCount: { $sum: 1 },
+            itemsSold: { $sum: { $sum: '$items.quantity' } },
+          },
+        },
+      ]),
+      (() => {
+        // Pakistan Time (Asia/Karachi UTC+5) start of today
+        const now = new Date()
+        const formatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Karachi',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+        const todayStr = formatter.format(now) // YYYY-MM-DD
+        const startOfToday = new Date(`${todayStr}T00:00:00+05:00`)
+        return Sale.aggregate([
+          { $match: { date: { $gte: startOfToday } } },
+          {
+            $group: {
+              _id: null,
+              todayRevenue: { $sum: '$total' },
+            },
+          },
+        ])
+      })(),
+    ])
+
+    const sales = salesDocs.map((s: any) => ({
+      ...s,
+      id: String(s._id),
+      _id: undefined,
+    }))
+
+    return NextResponse.json({
+      sales,
+      stats: {
+        totalRevenue: statsResult?.totalRevenue || 0,
+        totalCost: statsResult?.totalCost || 0,
+        profit: statsResult?.profit || 0,
+        salesCount: statsResult?.salesCount || 0,
+        itemsSold: statsResult?.itemsSold || 0,
+        todayRevenue: todayResult?.todayRevenue || 0,
+      },
+    })
   } catch (e) {
     console.error('GET /sales error', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

@@ -26,7 +26,7 @@ export async function GET(req: Request) {
     await dbConnect()
 
     // 1. Fetch sales for current period
-    const currentSales = await Sale.find({ date: { $gte: startDate, $lte: endDate } }).sort({ date: 1 })
+    const currentSales = await Sale.find({ date: { $gte: startDate, $lte: endDate } }).sort({ date: 1 }).lean()
 
     // Fetch previous period of equal duration if not 'all' time
     let previousSales: any[] = []
@@ -39,17 +39,17 @@ export async function GET(req: Request) {
       const durationMs = endDate.getTime() - startDate.getTime()
       prevStartDate = new Date(startDate.getTime() - durationMs)
       prevEndDate = new Date(startDate.getTime())
-      previousSales = await Sale.find({ date: { $gte: prevStartDate, $lt: startDate } }).sort({ date: 1 })
+      previousSales = await Sale.find({ date: { $gte: prevStartDate, $lt: startDate } }).sort({ date: 1 }).lean()
     }
 
     // 2. Fetch returns for current period
-    const currentReturns = await ReturnRequest.find({ createdAt: { $gte: startDate, $lte: endDate } })
+    const currentReturns = await ReturnRequest.find({ createdAt: { $gte: startDate, $lte: endDate } }).lean()
     if (!isAllTime) {
-      previousReturns = await ReturnRequest.find({ createdAt: { $gte: prevStartDate, $lt: startDate } })
+      previousReturns = await ReturnRequest.find({ createdAt: { $gte: prevStartDate, $lt: startDate } }).lean()
     }
 
     // 3. Fetch products to resolve categories and costs
-    const products = await Product.find({})
+    const products = await Product.find({}).lean()
     const productMap = new Map(products.map((p) => [String(p._id), p]))
 
     // --- Compute KPIs function ---

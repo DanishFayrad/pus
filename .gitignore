@@ -28,3 +28,6 @@ dist-ssr
 package-lock.json
 test_stats.js
 *.tsbuildinfo
+
+# Database backups
+backups/

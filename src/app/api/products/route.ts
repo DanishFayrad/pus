@@ -11,8 +11,14 @@ export async function GET() {
 
   try {
     await dbConnect()
-    const products = await Product.find().sort({ name: 1 })
-    return NextResponse.json({ products: products.map((p) => p.toJSON()) })
+    const products = await Product.find().sort({ name: 1 }).lean()
+    return NextResponse.json({
+      products: products.map((p: any) => ({
+        ...p,
+        id: String(p._id),
+        _id: undefined,
+      })),
+    })
   } catch (e) {
     console.error('GET /products error', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })

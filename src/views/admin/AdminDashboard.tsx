@@ -29,7 +29,7 @@ const ICON: Record<string, string> = {
 }
 
 export default function AdminDashboard() {
-  const { products, sales, returnRequests, pollReturns, updateReturnRequest, deleteSale } = useStore()
+  const { products, sales, returnRequests, stats: serverStats, pollReturns, updateReturnRequest, deleteSale } = useStore()
   const confirm = useConfirm()
   const [showToast, setShowToast] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -73,11 +73,13 @@ export default function AdminDashboard() {
   }, [pendingReturns.length])
 
   const stats = useMemo(() => {
-    let totalRevenue = sales.reduce((s, x) => s + (x.total || 0), 0)
-    let totalCost = sales.reduce((s, x) => s + (x.cost || 0), 0)
-    let profit = sales.reduce((s, x) => s + (x.profit || 0), 0)
-    const salesCount = sales.length
-    let itemsSold = sales.reduce((s, x) => s + x.items.reduce((a, i) => a + (i.quantity || 0), 0), 0)
+    let totalRevenue = serverStats ? serverStats.totalRevenue : sales.reduce((s, x) => s + (x.total || 0), 0)
+    let totalCost = serverStats ? serverStats.totalCost : sales.reduce((s, x) => s + (x.cost || 0), 0)
+    let profit = serverStats ? serverStats.profit : sales.reduce((s, x) => s + (x.profit || 0), 0)
+    const salesCount = serverStats ? serverStats.salesCount : sales.length
+    let itemsSold = serverStats
+      ? serverStats.itemsSold
+      : sales.reduce((s, x) => s + x.items.reduce((a, i) => a + (i.quantity || 0), 0), 0)
 
     const approvedReturns = returnRequests.filter((r) => r.status === 'approved')
     approvedReturns.forEach((r) => {
@@ -94,9 +96,11 @@ export default function AdminDashboard() {
     const lowStock = products.filter((p) => p.stock <= 5).length
     const today = pktDayKey(new Date())
 
-    let todayRevenue = sales
-      .filter((s) => pktDayKey(s.date) === today)
-      .reduce((s, x) => s + (x.total || 0), 0)
+    let todayRevenue = serverStats
+      ? serverStats.todayRevenue
+      : sales
+          .filter((s) => pktDayKey(s.date) === today)
+          .reduce((s, x) => s + (x.total || 0), 0)
 
     approvedReturns
       .filter((r) => pktDayKey(r.updatedAt) === today)
@@ -107,7 +111,7 @@ export default function AdminDashboard() {
 
     const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
     return { totalRevenue, totalCost, profit, salesCount, itemsSold, inventoryValue, lowStock, todayRevenue, margin }
-  }, [products, sales, returnRequests])
+  }, [products, sales, returnRequests, serverStats])
 
   const recent = sales.slice(0, 5)
 

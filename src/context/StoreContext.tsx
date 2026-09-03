@@ -3,10 +3,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import type { Product, Sale, SaleItem, ReturnRequest } from '../types'
 
+export interface DashboardStats {
+  totalRevenue: number
+  totalCost: number
+  profit: number
+  salesCount: number
+  itemsSold: number
+  todayRevenue: number
+}
+
 interface StoreContextValue {
   products: Product[]
   sales: Sale[]
   returnRequests: ReturnRequest[]
+  stats: DashboardStats | null
   loading: boolean
   error: string | null
   addProduct: (p: Omit<Product, 'id'>) => Promise<void>
@@ -28,6 +38,7 @@ interface StoreContextValue {
   updateReturnRequest: (id: string, status: 'approved' | 'rejected') => Promise<void>
   deleteReturnRequest: (id: string) => Promise<void>
   refresh: () => Promise<void>
+  refreshSales: (limit?: number) => Promise<void>
   pollReturns: () => Promise<void>
 }
 
@@ -49,6 +60,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([])
+  const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,9 +71,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setProducts(p.products)
   }, [])
 
-  const refreshSales = useCallback(async () => {
-    const s = await api<{ sales: Sale[] }>('/api/sales')
+  const refreshSales = useCallback(async (limit = 300) => {
+    const s = await api<{ sales: Sale[]; stats?: DashboardStats }>(`/api/sales?limit=${limit}`)
     setSales(s.sales)
+    if (s.stats) setStats(s.stats)
   }, [])
 
   const pollReturns = useCallback(async () => {
@@ -75,15 +88,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [p, s, r] = await Promise.all([
+      const [pRes, sRes, rRes] = await Promise.allSettled([
         api<{ products: Product[] }>('/api/products'),
-        api<{ sales: Sale[] }>('/api/sales'),
+        api<{ sales: Sale[]; stats?: DashboardStats }>('/api/sales'),
         api<{ returnRequests: ReturnRequest[] }>('/api/returns'),
       ])
-      setProducts(p.products)
-      setSales(s.sales)
-      setReturnRequests(r.returnRequests)
-      setError(null)
+
+      if (pRes.status === 'fulfilled') setProducts(pRes.value.products)
+      if (sRes.status === 'fulfilled') {
+        setSales(sRes.value.sales)
+        if (sRes.value.stats) setStats(sRes.value.stats)
+      }
+      if (rRes.status === 'fulfilled') setReturnRequests(rRes.value.returnRequests)
+
+      if (pRes.status === 'rejected' && sRes.status === 'rejected') {
+        setError('Failed to load data')
+      } else {
+        setError(null)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
@@ -203,6 +225,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       products,
       sales,
       returnRequests,
+      stats,
       loading,
       error,
       addProduct,
@@ -216,12 +239,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateReturnRequest,
       deleteReturnRequest,
       refresh,
+      refreshSales,
       pollReturns,
     }),
     [
       products,
       sales,
       returnRequests,
+      stats,
       loading,
       error,
       addProduct,
@@ -235,6 +260,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateReturnRequest,
       deleteReturnRequest,
       refresh,
+      refreshSales,
       pollReturns,
     ],
   )

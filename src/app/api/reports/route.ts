@@ -124,7 +124,10 @@ export async function GET(req: Request) {
       }
     } else {
       // Everything else derives from Sale.
-      const sales = await Sale.find(saleQuery).sort({ date: -1 }).lean()
+      const sales = await Sale.find(saleQuery)
+        .sort({ date: -1 })
+        .limit(dateFiltered ? 3000 : 1500)
+        .lean()
 
       if (type === 'sales' || type === 'orders') {
         rows = sales.map((s) => ({

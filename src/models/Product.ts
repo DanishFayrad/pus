@@ -13,11 +13,11 @@ export interface IProduct {
 const ProductSchema = new Schema<IProduct>(
   {
     barcode: { type: String, required: true, unique: true, trim: true, index: true },
-    name: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true, index: true },
     price: { type: Number, required: true, min: 0 },
     cost: { type: Number, required: true, min: 0 },
     stock: { type: Number, required: true, min: 0, default: 0 },
-    category: { type: String, required: true, default: 'General' },
+    category: { type: String, required: true, default: 'General', index: true },
   },
   { timestamps: true },
 )
