@@ -115,20 +115,28 @@ export default function AdminDashboard() {
 
   const recent = sales.slice(0, 5)
 
-  const cards: { label: string; value: string; icon: string; accent: Accent; sub?: string }[] = [
-    { label: 'Total Revenue', value: fmt(stats.totalRevenue), icon: ICON.revenue, accent: 'indigo' },
+  const fmtCard = (n: number) => {
+    if (Math.abs(n) >= 100000) {
+      return 'Rs ' + Math.round(n).toLocaleString('en-PK')
+    }
+    return fmt(n)
+  }
+
+  const cards: { label: string; value: string; fullValue?: string; icon: string; accent: Accent; sub?: string }[] = [
+    { label: 'Total Revenue', value: fmtCard(stats.totalRevenue), fullValue: fmt(stats.totalRevenue), icon: ICON.revenue, accent: 'indigo' },
     {
       label: stats.profit >= 0 ? 'Net Profit' : 'Net Loss',
-      value: fmt(Math.abs(stats.profit)),
+      value: fmtCard(Math.abs(stats.profit)),
+      fullValue: fmt(Math.abs(stats.profit)),
       icon: ICON.profit,
       accent: stats.profit >= 0 ? 'emerald' : 'red',
       sub: `${stats.margin.toFixed(1)}% margin`,
     },
-    { label: "Today's Revenue", value: fmt(stats.todayRevenue), icon: ICON.today, accent: 'violet' },
+    { label: "Today's Revenue", value: fmtCard(stats.todayRevenue), fullValue: fmt(stats.todayRevenue), icon: ICON.today, accent: 'violet' },
     { label: 'Sales', value: String(stats.salesCount), icon: ICON.sales, accent: 'cyan', sub: `${stats.itemsSold} items sold` },
-    { label: 'Total Cost', value: fmt(stats.totalCost), icon: ICON.cost, accent: 'slate' },
+    { label: 'Total Cost', value: fmtCard(stats.totalCost), fullValue: fmt(stats.totalCost), icon: ICON.cost, accent: 'slate' },
     { label: 'Items Sold', value: String(stats.itemsSold), icon: ICON.items, accent: 'slate' },
-    { label: 'Inventory Value', value: fmt(stats.inventoryValue), icon: ICON.inventory, accent: 'amber' },
+    { label: 'Inventory Value', value: fmtCard(stats.inventoryValue), fullValue: fmt(stats.inventoryValue), icon: ICON.inventory, accent: 'amber' },
     {
       label: 'Low Stock (≤5)',
       value: String(stats.lowStock),
@@ -162,7 +170,14 @@ export default function AdminDashboard() {
                 </svg>
               </span>
             </div>
-            <div className="mt-3 truncate text-xl font-extrabold tracking-tight tabular-nums sm:text-2xl">{c.value}</div>
+            <div
+              title={c.fullValue || c.value}
+              className={`mt-3 truncate font-extrabold tracking-tight tabular-nums ${
+                c.value.length > 13 ? 'text-lg sm:text-xl lg:text-2xl' : 'text-xl sm:text-2xl'
+              }`}
+            >
+              {c.value}
+            </div>
             {c.sub && <div className="mt-1 text-xs font-medium text-slate-400">{c.sub}</div>}
           </div>
         ))}
