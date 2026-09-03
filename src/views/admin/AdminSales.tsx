@@ -7,7 +7,7 @@ import { formatDateTime, pktDayKey, formatDate, pktTimeKey } from '../../lib/dat
 import { printReceipt, printVendorClosingSlip } from '../../lib/receipt'
 
 export default function AdminSales() {
-  const { sales, deleteSale, returnRequests, products, refreshSales } = useStore()
+  const { sales, deleteSale, returnRequests, products, refreshSales, stats: serverStats } = useStore()
   const [loadingMore, setLoadingMore] = useState(false)
   const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -184,6 +184,33 @@ export default function AdminSales() {
 
   // Calculate stats for searched/filtered sales
   const totals = useMemo(() => {
+    const isAllTimeUnfiltered =
+      dateFilter === 'all' &&
+      timeFilter === 'all' &&
+      categoryFilter === 'all' &&
+      !searchQuery.trim()
+
+    if (isAllTimeUnfiltered && serverStats) {
+      let revenue = serverStats.totalRevenue
+      let cost = serverStats.totalCost
+      let profit = serverStats.profit
+      const approvedReturns = returnRequests.filter((r) => r.status === 'approved')
+      approvedReturns.forEach((r) => {
+        const p = products.find((prod) => String(prod.id) === String(r.productId))
+        if (p) {
+          revenue -= p.price * r.quantity
+          cost -= p.cost * r.quantity
+          profit -= (p.price - p.cost) * r.quantity
+        }
+      })
+      return {
+        revenue,
+        cost,
+        profit,
+        sales: serverStats.salesCount,
+      }
+    }
+
     const rawTotals = searchedSales.reduce(
       (acc, s) => {
         acc.revenue += (s.total || 0)
@@ -207,7 +234,7 @@ export default function AdminSales() {
     })
 
     return rawTotals
-  }, [searchedSales, returnRequests, products])
+  }, [searchedSales, returnRequests, products, serverStats, dateFilter, timeFilter, categoryFilter, searchQuery])
 
   // Get products sold summary for the searched sales
   const productSales = useMemo(() => {
@@ -442,7 +469,7 @@ export default function AdminSales() {
                 </button>
               ))}
             </div>
-            {sales.length <= 300 && (dateFilter === 'all' || dateFilter === 'last30' || dateFilter === 'last10') && (
+            {sales.length < (serverStats?.salesCount || 1000) && (dateFilter === 'all' || dateFilter === 'last30' || dateFilter === 'last10') && (
               <div className="mt-2">
                 <button
                   type="button"
@@ -450,14 +477,14 @@ export default function AdminSales() {
                   onClick={async () => {
                     setLoadingMore(true)
                     try {
-                      await refreshSales(1000)
+                      await refreshSales(sales.length + 500)
                     } finally {
                       setLoadingMore(false)
                     }
                   }}
                   className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
-                  {loadingMore ? 'Loading older sales...' : '📥 Showing recent 300 sales. Click to load up to 1,000 sales'}
+                  {loadingMore ? 'Loading older receipts...' : `📥 Table showing recent ${sales.length} receipts. Click to load more`}
                 </button>
               </div>
             )}
