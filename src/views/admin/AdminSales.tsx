@@ -7,7 +7,8 @@ import { formatDateTime, pktDayKey, formatDate, pktTimeKey } from '../../lib/dat
 import { printReceipt, printVendorClosingSlip } from '../../lib/receipt'
 
 export default function AdminSales() {
-  const { sales, deleteSale, returnRequests, products } = useStore()
+  const { sales, deleteSale, returnRequests, products, refreshSales } = useStore()
+  const [loadingMore, setLoadingMore] = useState(false)
   const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -441,6 +442,25 @@ export default function AdminSales() {
                 </button>
               ))}
             </div>
+            {sales.length <= 300 && (dateFilter === 'all' || dateFilter === 'last30' || dateFilter === 'last10') && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={async () => {
+                    setLoadingMore(true)
+                    try {
+                      await refreshSales(1000)
+                    } finally {
+                      setLoadingMore(false)
+                    }
+                  }}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  {loadingMore ? 'Loading older sales...' : '📥 Showing recent 300 sales. Click to load up to 1,000 sales'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Vendor / Category Selector */}

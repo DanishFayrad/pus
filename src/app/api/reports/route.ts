@@ -124,10 +124,18 @@ export async function GET(req: Request) {
       }
     } else {
       // Everything else derives from Sale.
-      const sales = await Sale.find(saleQuery)
-        .sort({ date: -1 })
-        .limit(dateFiltered ? 3000 : 1500)
-        .lean()
+      let queryFilter: Record<string, any> = { ...saleQuery }
+      if (type === 'credits') {
+        queryFilter.paymentMethod = 'credit'
+      }
+
+      let query = Sale.find(queryFilter).sort({ date: -1 }).limit(500)
+
+      if (type === 'sales' || type === 'orders' || type === 'credits') {
+        query = query.select('date cashierName items.quantity total cost profit paymentMethod customerName customerPhone creditStatus')
+      }
+
+      const sales = await query.lean()
 
       if (type === 'sales' || type === 'orders') {
         rows = sales.map((s) => ({

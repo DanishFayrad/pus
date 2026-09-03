@@ -25,8 +25,12 @@ export async function GET(req: Request) {
 
     await dbConnect()
 
-    // 1. Fetch sales for current period
-    const currentSales = await Sale.find({ date: { $gte: startDate, $lte: endDate } }).sort({ date: 1 }).lean()
+    // 1. Fetch sales for current period (optimized projection & limit)
+    const currentSales = await Sale.find({ date: { $gte: startDate, $lte: endDate } })
+      .select('date total cost profit items.quantity items.productId items.price items.cost items.name items.barcode paymentMethod cashierName')
+      .sort({ date: 1 })
+      .limit(2000)
+      .lean()
 
     // Fetch previous period of equal duration if not 'all' time
     let previousSales: any[] = []
@@ -39,7 +43,11 @@ export async function GET(req: Request) {
       const durationMs = endDate.getTime() - startDate.getTime()
       prevStartDate = new Date(startDate.getTime() - durationMs)
       prevEndDate = new Date(startDate.getTime())
-      previousSales = await Sale.find({ date: { $gte: prevStartDate, $lt: startDate } }).sort({ date: 1 }).lean()
+      previousSales = await Sale.find({ date: { $gte: prevStartDate, $lt: startDate } })
+        .select('date total cost profit items.quantity items.productId items.price items.cost items.name items.barcode paymentMethod cashierName')
+        .sort({ date: 1 })
+        .limit(2000)
+        .lean()
     }
 
     // 2. Fetch returns for current period
