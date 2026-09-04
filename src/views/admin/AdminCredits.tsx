@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, useEffect, useCallback } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
@@ -19,7 +19,7 @@ interface CustomerGroup {
 }
 
 export default function AdminCredits() {
-  const { sales, updateSale, deleteSale } = useStore()
+  const { updateSale, deleteSale } = useStore()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const confirm = useConfirm()
@@ -33,10 +33,30 @@ export default function AdminCredits() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'paid'>('unpaid')
 
-  // Get only credit sales
-  const creditSales = useMemo(() => {
-    return sales.filter(s => s.paymentMethod === 'credit')
-  }, [sales])
+  // Fetch all credit sales directly from database (not capped by general sales limit)
+  const [creditSales, setCreditSales] = useState<Sale[]>([])
+  const [loadingCredits, setLoadingCredits] = useState(true)
+
+  const fetchCredits = useCallback(async () => {
+    try {
+      setLoadingCredits(true)
+      const res = await fetch('/api/sales?paymentMethod=credit&all=true')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.sales)) {
+          setCreditSales(data.sales)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load credit sales:', err)
+    } finally {
+      setLoadingCredits(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchCredits()
+  }, [fetchCredits])
 
   // Calculate summary metrics
   const metrics = useMemo(() => {
@@ -173,7 +193,11 @@ export default function AdminCredits() {
     setUpdatingId(id)
     setUpdateError(null)
     try {
-      await updateSale(id, { creditStatus: isPaying ? 'paid' : 'unpaid' })
+      const newStatus = isPaying ? 'paid' : 'unpaid'
+      await updateSale(id, { creditStatus: newStatus })
+      setCreditSales((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, creditStatus: newStatus } : s)),
+      )
     } catch (e) {
       setUpdateError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -202,6 +226,11 @@ export default function AdminCredits() {
       for (const s of unpaidSales) {
         await updateSale(s.id, { creditStatus: 'paid' })
       }
+      setCreditSales((prev) =>
+        prev.map((s) =>
+          unpaidSales.some((u) => u.id === s.id) ? { ...s, creditStatus: 'paid' } : s,
+        ),
+      )
     } catch (e) {
       setUpdateError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -228,6 +257,7 @@ export default function AdminCredits() {
     setUpdateError(null)
     try {
       await deleteSale(id)
+      setCreditSales((prev) => prev.filter((s) => s.id !== id))
       if (expandedReceipt === id) setExpandedReceipt(null)
     } catch (e) {
       setUpdateError(e instanceof Error ? e.message : 'Delete failed')
@@ -242,6 +272,21 @@ export default function AdminCredits() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Credit Book</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Track and manage credit sales and customer accounts.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void fetchCredits()}
+            disabled={loadingCredits}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer"
+          >
+            {loadingCredits ? <Spinner /> : (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -351,7 +396,12 @@ export default function AdminCredits() {
         </div>
 
         {/* Ledger Table */}
-        {filteredGroups.length === 0 ? (
+        {loadingCredits && creditSales.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
+            <Spinner />
+            <span className="text-xs">Loading all credit records...</span>
+          </div>
+        ) : filteredGroups.length === 0 ? (
           <div className="text-sm text-slate-550 py-12 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/20">
             No credit records match search and filters.
           </div>
