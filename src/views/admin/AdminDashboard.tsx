@@ -103,11 +103,16 @@ export default function AdminDashboard() {
           .reduce((s, x) => s + (x.total || 0), 0)
 
     approvedReturns
-      .filter((r) => pktDayKey(r.updatedAt) === today)
+      .filter((r) => pktDayKey(r.updatedAt || r.createdAt) === today)
       .forEach((r) => {
         const p = products.find((prod) => String(prod.id) === String(r.productId))
         if (p) todayRevenue -= p.price * r.quantity
       })
+
+    todayRevenue = Math.max(0, todayRevenue)
+    totalRevenue = Math.max(0, totalRevenue)
+    totalCost = Math.max(0, totalCost)
+    itemsSold = Math.max(0, itemsSold)
 
     const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
     return { totalRevenue, totalCost, profit, salesCount, itemsSold, inventoryValue, lowStock, todayRevenue, margin }

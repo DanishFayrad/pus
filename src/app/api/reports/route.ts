@@ -153,8 +153,8 @@ export async function GET(req: Request) {
         summary = {
           Orders: rows.length,
           'Units sold': rows.reduce((a, r) => a + Number(r.items), 0),
-          Revenue: money(rows.reduce((a, r) => a + Number(r.total), 0)),
-          Cost: money(rows.reduce((a, r) => a + Number(r.cost), 0)),
+          Revenue: money(Math.max(0, rows.reduce((a, r) => a + Number(r.total), 0))),
+          Cost: money(Math.max(0, rows.reduce((a, r) => a + Number(r.cost), 0))),
           Profit: money(rows.reduce((a, r) => a + Number(r.profit), 0)),
           'Average order value': rows.length
             ? money(rows.reduce((a, r) => a + Number(r.total), 0) / rows.length)

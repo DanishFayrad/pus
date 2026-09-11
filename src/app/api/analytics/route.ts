@@ -87,12 +87,12 @@ export async function GET(req: Request) {
       const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
 
       return {
-        totalRevenue,
-        totalCost,
+        totalRevenue: Math.max(0, totalRevenue),
+        totalCost: Math.max(0, totalCost),
         totalProfit,
         totalOrders,
-        totalSalesQty,
-        aov,
+        totalSalesQty: Math.max(0, totalSalesQty),
+        aov: Math.max(0, aov),
         profitMargin,
       }
     }

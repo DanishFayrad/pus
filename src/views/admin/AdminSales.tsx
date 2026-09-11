@@ -75,10 +75,9 @@ export default function AdminSales() {
     }
   }
 
-  // Helper to get YYYY-MM-DD for Pakistan time N days ago
+  // Helper to get YYYY-MM-DD for Pakistan time N days ago (timezone-safe)
   const getPktDateString = (offsetDays = 0): string => {
-    const d = new Date()
-    d.setDate(d.getDate() - offsetDays)
+    const d = new Date(Date.now() - offsetDays * 24 * 60 * 60 * 1000)
     return pktDayKey(d)
   }
 
@@ -204,8 +203,8 @@ export default function AdminSales() {
         }
       })
       return {
-        revenue,
-        cost,
+        revenue: Math.max(0, revenue),
+        cost: Math.max(0, cost),
         profit,
         sales: serverStats.salesCount,
       }
@@ -222,9 +221,95 @@ export default function AdminSales() {
       { revenue: 0, cost: 0, profit: 0, sales: 0 },
     )
 
-    // Deduct approved returns
-    const approvedReturns = returnRequests.filter((r) => r.status === 'approved')
-    approvedReturns.forEach((r) => {
+    // Deduct only approved returns that match the active filters (date, time, category, search)
+    const matchingReturns = returnRequests.filter((r) => {
+      if (r.status !== 'approved') return false
+
+      // 1. Date filter matching
+      const returnDate = r.createdAt || r.updatedAt
+      if (returnDate) {
+        const returnDay = pktDayKey(returnDate)
+        let dateMatch = false
+        switch (dateFilter) {
+          case 'today':
+            dateMatch = returnDay === getPktDateString(0)
+            break
+          case 'yesterday':
+            dateMatch = returnDay === getPktDateString(1)
+            break
+          case 'last7':
+            dateMatch = returnDay >= getPktDateString(6) && returnDay <= getPktDateString(0)
+            break
+          case 'last10':
+            dateMatch = returnDay >= getPktDateString(9) && returnDay <= getPktDateString(0)
+            break
+          case 'last30':
+            dateMatch = returnDay >= getPktDateString(29) && returnDay <= getPktDateString(0)
+            break
+          case 'custom':
+            if (customStart && customEnd) {
+              dateMatch = returnDay >= customStart && returnDay <= customEnd
+            } else if (customStart) {
+              dateMatch = returnDay >= customStart
+            } else if (customEnd) {
+              dateMatch = returnDay <= customEnd
+            } else {
+              dateMatch = true
+            }
+            break
+          default:
+            dateMatch = true
+            break
+        }
+        if (!dateMatch) return false
+
+        // 2. Time filter matching
+        if (timeFilter !== 'all') {
+          const retTime = pktTimeKey(returnDate)
+          let startTime = '00:00'
+          let endTime = '23:59'
+          switch (timeFilter) {
+            case 'morning':
+              startTime = '08:00'
+              endTime = '15:59'
+              break
+            case 'evening':
+              startTime = '16:00'
+              endTime = '23:59'
+              break
+            case 'night':
+              startTime = '00:00'
+              endTime = '07:59'
+              break
+            case 'custom':
+              startTime = customTimeStart || '00:00'
+              endTime = customTimeEnd || '23:59'
+              break
+          }
+          if (startTime <= endTime) {
+            if (retTime < startTime || retTime > endTime) return false
+          } else {
+            if (retTime < startTime && retTime > endTime) return false
+          }
+        }
+      }
+
+      // 3. Category filter matching
+      if (categoryFilter !== 'all') {
+        const prod = productMap.get(r.productId)
+        if (prod?.category?.toLowerCase() !== categoryFilter.toLowerCase()) return false
+      }
+
+      // 4. Search query matching
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase()
+        if (!r.productName.toLowerCase().includes(q)) return false
+      }
+
+      return true
+    })
+
+    matchingReturns.forEach((r) => {
       const p = products.find((prod) => String(prod.id) === String(r.productId))
       if (p) {
         rawTotals.revenue -= p.price * r.quantity
@@ -233,8 +318,26 @@ export default function AdminSales() {
       }
     })
 
+    // Safety: Revenue and cost must never drop below 0
+    rawTotals.revenue = Math.max(0, rawTotals.revenue)
+    rawTotals.cost = Math.max(0, rawTotals.cost)
+
     return rawTotals
-  }, [searchedSales, returnRequests, products, serverStats, dateFilter, timeFilter, categoryFilter, searchQuery])
+  }, [
+    searchedSales,
+    returnRequests,
+    products,
+    serverStats,
+    dateFilter,
+    timeFilter,
+    customTimeStart,
+    customTimeEnd,
+    customStart,
+    customEnd,
+    categoryFilter,
+    searchQuery,
+    productMap,
+  ])
 
   // Get products sold summary for the searched sales
   const productSales = useMemo(() => {
