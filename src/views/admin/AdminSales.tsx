@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useEffect } from 'react'
+import { Fragment, useMemo, useState, useEffect, useCallback } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
@@ -81,79 +81,98 @@ export default function AdminSales() {
     return pktDayKey(d)
   }
 
-  // Filter sales based on the active date and time filters
-  const filteredSales = useMemo(() => {
-    return sales.filter((s) => {
-      // 1. Date Filter
-      const saleDay = pktDayKey(s.date)
+  // Helper to check if a Date or ISO string matches the active date & time filters
+  const matchesDateTimeFilter = useCallback(
+    (isoDate: string | Date | undefined | null): boolean => {
+      if (!isoDate) return false
+      const day = pktDayKey(isoDate)
+      const time = pktTimeKey(isoDate)
+      const fullDateTime = `${day} ${time}`
+
+      // 1. When Date is Custom
+      if (dateFilter === 'custom') {
+        // When Time is also Custom, treat as a single continuous DateTime window (e.g. 11 Sep 17:00 to 12 Sep 03:00)
+        if (timeFilter === 'custom') {
+          const startFull = customStart ? `${customStart} ${customTimeStart || '00:00'}` : ''
+          const endFull = customEnd ? `${customEnd} ${customTimeEnd || '23:59'}` : ''
+
+          if (startFull && endFull) {
+            return fullDateTime >= startFull && fullDateTime <= endFull
+          } else if (startFull) {
+            return fullDateTime >= startFull
+          } else if (endFull) {
+            return fullDateTime <= endFull
+          }
+          return true
+        }
+
+        // Custom Date Range with preset or 'all' time
+        let dateMatch = true
+        if (customStart && customEnd) {
+          dateMatch = day >= customStart && day <= customEnd
+        } else if (customStart) {
+          dateMatch = day >= customStart
+        } else if (customEnd) {
+          dateMatch = day <= customEnd
+        }
+        if (!dateMatch) return false
+
+        if (timeFilter === 'morning') return time >= '08:00' && time <= '15:59'
+        if (timeFilter === 'evening') return time >= '16:00' && time <= '23:59'
+        if (timeFilter === 'night') return time >= '00:00' && time <= '07:59'
+        return true
+      }
+
+      // 2. Preset Date Filters ('today', 'yesterday', 'last7', etc.)
       let dateMatch = false
       switch (dateFilter) {
         case 'today':
-          dateMatch = saleDay === getPktDateString(0)
+          dateMatch = day === getPktDateString(0)
           break
         case 'yesterday':
-          dateMatch = saleDay === getPktDateString(1)
+          dateMatch = day === getPktDateString(1)
           break
         case 'last7':
-          dateMatch = saleDay >= getPktDateString(6) && saleDay <= getPktDateString(0)
+          dateMatch = day >= getPktDateString(6) && day <= getPktDateString(0)
           break
         case 'last10':
-          dateMatch = saleDay >= getPktDateString(9) && saleDay <= getPktDateString(0)
+          dateMatch = day >= getPktDateString(9) && day <= getPktDateString(0)
           break
         case 'last30':
-          dateMatch = saleDay >= getPktDateString(29) && saleDay <= getPktDateString(0)
-          break
-        case 'custom':
-          if (customStart && customEnd) {
-            dateMatch = saleDay >= customStart && saleDay <= customEnd
-          } else if (customStart) {
-            dateMatch = saleDay >= customStart
-          } else if (customEnd) {
-            dateMatch = saleDay <= customEnd
-          } else {
-            dateMatch = true
-          }
+          dateMatch = day >= getPktDateString(29) && day <= getPktDateString(0)
           break
         default:
           dateMatch = true
           break
       }
-
       if (!dateMatch) return false
 
-      // 2. Time Filter
-      if (timeFilter !== 'all') {
-        const saleTime = pktTimeKey(s.date)
-        let startTime = '00:00'
-        let endTime = '23:59'
-
-        switch (timeFilter) {
-          case 'morning':
-            startTime = '08:00'
-            endTime = '15:59'
-            break
-          case 'evening':
-            startTime = '16:00'
-            endTime = '23:59'
-            break
-          case 'night':
-            startTime = '00:00'
-            endTime = '07:59'
-            break
-          case 'custom':
-            startTime = customTimeStart || '00:00'
-            endTime = customTimeEnd || '23:59'
-            break
-        }
-
+      // 3. Time Filter for non-custom date presets
+      if (timeFilter === 'all') return true
+      if (timeFilter === 'morning') return time >= '08:00' && time <= '15:59'
+      if (timeFilter === 'evening') return time >= '16:00' && time <= '23:59'
+      if (timeFilter === 'night') return time >= '00:00' && time <= '07:59'
+      if (timeFilter === 'custom') {
+        const startTime = customTimeStart || '00:00'
+        const endTime = customTimeEnd || '23:59'
         if (startTime <= endTime) {
-          if (saleTime < startTime || saleTime > endTime) return false
+          return time >= startTime && time <= endTime
         } else {
-          if (saleTime < startTime && saleTime > endTime) return false
+          return time >= startTime || time <= endTime
         }
       }
+      return true
+    },
+    [dateFilter, customStart, customEnd, timeFilter, customTimeStart, customTimeEnd],
+  )
 
-      // 3. Category / Vendor Filter
+  // Filter sales based on the active date and time filters
+  const filteredSales = useMemo(() => {
+    return sales.filter((s) => {
+      // 1. Date & Time Filter
+      if (!matchesDateTimeFilter(s.date)) return false
+
+      // 2. Category / Vendor Filter
       if (categoryFilter !== 'all') {
         const hasMatchingCategory = s.items.some((i) => {
           const prod = productMap.get(i.productId)
@@ -164,7 +183,7 @@ export default function AdminSales() {
 
       return true
     })
-  }, [sales, dateFilter, customStart, customEnd, timeFilter, customTimeStart, customTimeEnd, categoryFilter, productMap])
+  }, [sales, matchesDateTimeFilter, categoryFilter, productMap])
 
   // Filter sales based on search query
   const searchedSales = useMemo(() => {
@@ -225,82 +244,16 @@ export default function AdminSales() {
     const matchingReturns = returnRequests.filter((r) => {
       if (r.status !== 'approved') return false
 
-      // 1. Date filter matching
-      const returnDate = r.createdAt || r.updatedAt
-      if (returnDate) {
-        const returnDay = pktDayKey(returnDate)
-        let dateMatch = false
-        switch (dateFilter) {
-          case 'today':
-            dateMatch = returnDay === getPktDateString(0)
-            break
-          case 'yesterday':
-            dateMatch = returnDay === getPktDateString(1)
-            break
-          case 'last7':
-            dateMatch = returnDay >= getPktDateString(6) && returnDay <= getPktDateString(0)
-            break
-          case 'last10':
-            dateMatch = returnDay >= getPktDateString(9) && returnDay <= getPktDateString(0)
-            break
-          case 'last30':
-            dateMatch = returnDay >= getPktDateString(29) && returnDay <= getPktDateString(0)
-            break
-          case 'custom':
-            if (customStart && customEnd) {
-              dateMatch = returnDay >= customStart && returnDay <= customEnd
-            } else if (customStart) {
-              dateMatch = returnDay >= customStart
-            } else if (customEnd) {
-              dateMatch = returnDay <= customEnd
-            } else {
-              dateMatch = true
-            }
-            break
-          default:
-            dateMatch = true
-            break
-        }
-        if (!dateMatch) return false
+      // 1. Date & Time matching
+      if (!matchesDateTimeFilter(r.createdAt || r.updatedAt)) return false
 
-        // 2. Time filter matching
-        if (timeFilter !== 'all') {
-          const retTime = pktTimeKey(returnDate)
-          let startTime = '00:00'
-          let endTime = '23:59'
-          switch (timeFilter) {
-            case 'morning':
-              startTime = '08:00'
-              endTime = '15:59'
-              break
-            case 'evening':
-              startTime = '16:00'
-              endTime = '23:59'
-              break
-            case 'night':
-              startTime = '00:00'
-              endTime = '07:59'
-              break
-            case 'custom':
-              startTime = customTimeStart || '00:00'
-              endTime = customTimeEnd || '23:59'
-              break
-          }
-          if (startTime <= endTime) {
-            if (retTime < startTime || retTime > endTime) return false
-          } else {
-            if (retTime < startTime && retTime > endTime) return false
-          }
-        }
-      }
-
-      // 3. Category filter matching
+      // 2. Category filter matching
       if (categoryFilter !== 'all') {
         const prod = productMap.get(r.productId)
         if (prod?.category?.toLowerCase() !== categoryFilter.toLowerCase()) return false
       }
 
-      // 4. Search query matching
+      // 3. Search query matching
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase()
         if (!r.productName.toLowerCase().includes(q)) return false
@@ -330,13 +283,10 @@ export default function AdminSales() {
     serverStats,
     dateFilter,
     timeFilter,
-    customTimeStart,
-    customTimeEnd,
-    customStart,
-    customEnd,
     categoryFilter,
     searchQuery,
     productMap,
+    matchesDateTimeFilter,
   ])
 
   // Get products sold summary for the searched sales
