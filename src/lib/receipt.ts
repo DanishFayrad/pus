@@ -11,13 +11,13 @@ function generateBarcode(text: string): string {
     const canvas = document.createElement('canvas')
     JsBarcode(canvas, text, {
       format: 'CODE128',
-      width: 1.8,
-      height: 38,
+      width: 1.45,
+      height: 34,
       displayValue: true,
-      fontSize: 11,
+      fontSize: 9.5,
       font: 'Courier New',
       textMargin: 2,
-      margin: 2,
+      margin: 1,
     })
     return canvas.toDataURL('image/png')
   } catch (e) {
@@ -89,42 +89,43 @@ export async function printReceipt(sale: Sale) {
           }
           body {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
+            font-size: 9.5px;
             color: #000;
             background: #fff;
             margin: 0 auto;
-            padding: 4px 10px;
+            padding: 2px 4px;
             width: 100%;
-            max-width: 225px;
+            max-width: 195px;
             text-align: center;
           }
           .title {
-            font-size: 17px;
+            font-size: 13.5px;
             font-weight: 900;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             margin-bottom: 2px;
+            word-break: break-word;
           }
           .subtitle {
-            font-size: 9.5px;
+            font-size: 8.5px;
             color: #333;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
           }
           .info {
             text-align: left;
-            font-size: 10.5px;
-            margin-bottom: 6px;
-            line-height: 1.35;
+            font-size: 9px;
+            margin-bottom: 4px;
+            line-height: 1.3;
           }
           .divider {
             border-top: 1px dashed #000;
-            margin: 5px 0;
+            margin: 4px 0;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 10px;
-            margin: 5px 0;
+            font-size: 9px;
+            margin: 4px 0;
             table-layout: fixed;
           }
           th, td {
@@ -133,31 +134,31 @@ export async function printReceipt(sale: Sale) {
           .total-section {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 11.5px;
             font-weight: bold;
-            margin-top: 6px;
-            padding-top: 5px;
+            margin-top: 4px;
+            padding-top: 4px;
             border-top: 1px dashed #000;
           }
           .barcode-box {
-            margin-top: 8px;
+            margin-top: 6px;
             text-align: center;
           }
           .barcode-box img {
-            max-width: 185px;
+            max-width: 155px;
             height: auto;
             display: inline-block;
           }
           .footer {
-            margin-top: 8px;
-            font-size: 9.5px;
-            line-height: 1.35;
+            margin-top: 6px;
+            font-size: 8.5px;
+            line-height: 1.3;
           }
           @media print {
             body {
               margin: 0 auto;
-              padding: 2px 8px;
-              max-width: 220px;
+              padding: 0 2px;
+              max-width: 190px;
               width: 100%;
             }
           }
@@ -179,9 +180,9 @@ export async function printReceipt(sale: Sale) {
         <table>
           <thead>
             <tr>
-              <th style="width: 44%; text-align: left; border-bottom: 1px solid #000; padding-bottom: 3px;">Item</th>
-              <th style="width: 28%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 3px;">Qty</th>
-              <th style="width: 28%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 3px;">Total</th>
+              <th style="width: 42%; text-align: left; border-bottom: 1px solid #000; padding-bottom: 2px;">Item</th>
+              <th style="width: 29%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 2px;">Qty</th>
+              <th style="width: 29%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 2px;">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -203,7 +204,6 @@ export async function printReceipt(sale: Sale) {
         </div>
 
         <div class="footer">
-          Scan barcode above for returns / lookup<br/>
           Thank you for visiting Milano Garden!
         </div>
 
@@ -263,43 +263,43 @@ export async function printReturnReceipt(ret: {
           * { box-sizing: border-box; }
           body {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
+            font-size: 9.5px;
             color: #000;
             background: #fff;
             margin: 0 auto;
-            padding: 4px 10px;
+            padding: 2px 4px;
             width: 100%;
-            max-width: 225px;
+            max-width: 195px;
             text-align: center;
           }
-          .title { font-size: 17px; font-weight: 900; text-transform: uppercase; }
+          .title { font-size: 13.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.3px; word-break: break-word; }
           .badge {
             display: inline-block;
             background: #000;
             color: #fff;
-            padding: 2px 6px;
-            font-size: 10px;
+            padding: 2px 5px;
+            font-size: 9px;
             font-weight: bold;
             border-radius: 3px;
-            margin: 3px 0 6px 0;
+            margin: 2px 0 4px 0;
           }
-          .info { text-align: left; font-size: 10.5px; margin-bottom: 6px; line-height: 1.35; }
-          .divider { border-top: 1px dashed #000; margin: 5px 0; }
-          table { width: 100%; border-collapse: collapse; font-size: 10px; margin: 5px 0; table-layout: fixed; }
+          .info { text-align: left; font-size: 9px; margin-bottom: 4px; line-height: 1.3; }
+          .divider { border-top: 1px dashed #000; margin: 4px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 9px; margin: 4px 0; table-layout: fixed; }
           .total-section {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 11.5px;
             font-weight: bold;
-            margin-top: 6px;
-            padding-top: 5px;
+            margin-top: 4px;
+            padding-top: 4px;
             border-top: 1px dashed #000;
           }
-          .barcode-box { margin-top: 8px; text-align: center; }
-          .barcode-box img { max-width: 185px; height: auto; }
-          .footer { margin-top: 8px; font-size: 9.5px; line-height: 1.35; }
+          .barcode-box { margin-top: 6px; text-align: center; }
+          .barcode-box img { max-width: 155px; height: auto; }
+          .footer { margin-top: 6px; font-size: 8.5px; line-height: 1.3; }
           @media print {
-            body { margin: 0 auto; padding: 2px 8px; max-width: 220px; width: 100%; }
+            body { margin: 0 auto; padding: 0 2px; max-width: 190px; width: 100%; }
           }
         </style>
       </head>
@@ -401,47 +401,47 @@ export function printVendorClosingSlip(closing: {
           * { box-sizing: border-box; }
           body {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
+            font-size: 9.5px;
             color: #000;
             background: #fff;
             margin: 0 auto;
-            padding: 4px 10px;
+            padding: 2px 4px;
             width: 100%;
-            max-width: 225px;
+            max-width: 195px;
             text-align: center;
           }
-          .title { font-size: 17px; font-weight: 900; text-transform: uppercase; }
+          .title { font-size: 13.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.3px; word-break: break-word; }
           .vendor-title {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: bold;
             background: #000;
             color: #fff;
-            padding: 3px;
-            margin: 4px 0 6px 0;
+            padding: 2px;
+            margin: 3px 0 5px 0;
             border-radius: 3px;
             text-transform: uppercase;
           }
-          .info { text-align: left; font-size: 10.5px; margin-bottom: 5px; line-height: 1.35; }
-          .divider { border-top: 1px dashed #000; margin: 5px 0; }
-          table { width: 100%; border-collapse: collapse; font-size: 10px; margin: 5px 0; table-layout: fixed; }
+          .info { text-align: left; font-size: 9px; margin-bottom: 4px; line-height: 1.3; }
+          .divider { border-top: 1px dashed #000; margin: 4px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 9px; margin: 4px 0; table-layout: fixed; }
           .summary-row {
             display: flex;
             justify-content: space-between;
-            font-size: 11px;
-            padding: 2px 0;
+            font-size: 9.5px;
+            padding: 1.5px 0;
           }
           .total-section {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 11.5px;
             font-weight: bold;
-            margin-top: 5px;
-            padding-top: 5px;
+            margin-top: 4px;
+            padding-top: 4px;
             border-top: 1px dashed #000;
           }
-          .footer { margin-top: 10px; font-size: 9.5px; line-height: 1.35; }
+          .footer { margin-top: 8px; font-size: 8.5px; line-height: 1.3; }
           @media print {
-            body { margin: 0 auto; padding: 2px 8px; max-width: 220px; width: 100%; }
+            body { margin: 0 auto; padding: 0 2px; max-width: 190px; width: 100%; }
           }
         </style>
       </head>
