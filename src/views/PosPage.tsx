@@ -1481,6 +1481,7 @@ export default function PosPage() {
             </div>
           </div>
         </div>
+        
       )}
 
      {checkoutModalOpen && (
