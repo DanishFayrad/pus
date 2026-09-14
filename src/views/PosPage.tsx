@@ -297,10 +297,6 @@ export default function PosPage() {
   const clearCart = () => setCart([])
 
   const openCheckoutModal = () => {
-    if (cart.length === 0) {
-      flash('err', 'Cart is empty')
-      return
-    }
     setPaymentMethod('cash')
     setCustomerName('')
     setCustomerPhone('')
@@ -930,8 +926,7 @@ export default function PosPage() {
           <button
             type="button"
             onClick={openCheckoutModal}
-            disabled={cart.length === 0}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-100 disabled:to-slate-100 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold transition-all duration-200 active:scale-[0.99] cursor-pointer shadow-md shadow-emerald-600/10 hover:shadow-lg disabled:shadow-none hover:shadow-emerald-600/20"
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold transition-all duration-200 active:scale-[0.99] cursor-pointer shadow-md shadow-emerald-600/10 hover:shadow-lg hover:shadow-emerald-600/20"
           >
             Checkout
           </button>
@@ -1485,22 +1480,63 @@ export default function PosPage() {
       )}
 
       {checkoutModalOpen && (
-      <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3 mb-4">
-    <div className="flex items-start gap-2">
-      <span>⚠️</span>
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-[fadeIn_0.15s_ease-out]"
+          onClick={() => setCheckoutModalOpen(false)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-100 dark:border-slate-700/50 transform animate-[scaleUp_0.15s_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                <span>⚠️</span> Storage Alert
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCheckoutModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition text-lg leading-none cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
 
-      <div className="flex-1">
-        <p className="font-bold mb-1">Storage Limit Reached</p>
+            <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3 mb-4">
+              <div className="flex items-start gap-2">
+                <span className="text-base">⚠️</span>
 
-        <p>
-          Your database storage is full. Please upgrade your plan
-          to continue saving new sales.
-        </p>
+                <div className="flex-1">
+                  <p className="font-bold text-sm mb-1">Storage Limit Reached</p>
 
-   
-      </div>
-    </div>
-  </div>
+                  <p className="text-xs leading-relaxed text-rose-700 dark:text-rose-400">
+                    Your database storage is full. Please upgrade your plan
+                    to continue saving new sales.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // navigate to billing/upgrade page
+                    }}
+                    className="mt-2.5 font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 underline cursor-pointer"
+                  >
+                    Upgrade Plan
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                type="button"
+                onClick={() => setCheckoutModalOpen(false)}
+                className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-700 text-sm font-semibold transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
