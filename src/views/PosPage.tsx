@@ -1483,126 +1483,24 @@ export default function PosPage() {
         </div>
       )}
 
-      {checkoutModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-[fadeIn_0.15s_ease-out]">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-slate-100 dark:border-slate-700/50 transform animate-[scaleUp_0.15s_ease-out]">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight mb-1">Checkout</h3>
-            <p className="text-sm text-slate-500 mb-4 leading-relaxed">Select payment mode and enter customer details if applicable.</p>
-            
-            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-150 dark:border-slate-800 rounded-xl p-4 mb-5 flex justify-between items-center shadow-2xs">
-              <span className="text-sm font-semibold text-slate-500">Total Bill Amount:</span>
-              <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{formatMoney(total)}</span>
-            </div>
+     {checkoutModalOpen && (
+<div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3 mb-4">
+    <div className="flex items-start gap-2">
+      <span>⚠️</span>
 
-            <div className="mb-5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Payment Method</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('cash')}
-                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-200 cursor-pointer text-center ${
-                    paymentMethod === 'cash'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-300 shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-350 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  💵 Cash
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('credit')}
-                  className={`py-3 px-4 rounded-xl font-bold text-sm border transition duration-200 cursor-pointer text-center ${
-                    paymentMethod === 'credit'
-                      ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-300 shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-350 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  📝 Credit
-                </button>
-              </div>
-            </div>
+      <div className="flex-1">
+        <p className="font-bold mb-1">Storage Limit Reached</p>
 
-            {paymentMethod === 'credit' && (
-              <div className="space-y-4 mb-5 animate-[fadeIn_0.15s_ease-out]">
-                <div className="relative">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Customer Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={(e) => {
-                      setCustomerName(e.target.value)
-                      setShowCustomerSuggestions(true)
-                    }}
-                    onFocus={() => setShowCustomerSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowCustomerSuggestions(false), 200)}
-                    placeholder="e.g. Ahmed Ali"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
-                  />
-                  {showCustomerSuggestions && filteredCustomers.length > 0 && (
-                    <div className="absolute left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-xl shadow-lg divide-y divide-slate-100 dark:divide-slate-700">
-                      {filteredCustomers.map((cust, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onMouseDown={() => {
-                            setCustomerName(cust.name)
-                            setCustomerPhone(cust.phone)
-                            setShowCustomerSuggestions(false)
-                          }}
-                          className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-750 transition cursor-pointer flex flex-col"
-                        >
-                          <span className="text-sm font-bold text-slate-850 dark:text-slate-200">{cust.name}</span>
-                          {cust.phone && (
-                            <span className="text-xs text-slate-400 font-medium">{cust.phone}</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Customer Phone
-                  </label>
-                  <input
-                    type="text"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="e.g. 0300-1234567"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs font-semibold"
-                  />
-                </div>
-              </div>
-            )}
+        <p>
+          Your database storage is full. Please upgrade your plan
+          to continue saving new sales.
+        </p>
 
-            {checkoutError && (
-              <div className="text-xs font-medium text-rose-600 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 rounded-xl px-4 py-3 mb-4">
-                ⚠️ {checkoutError}
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setCheckoutModalOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300 dark:hover:bg-slate-700 text-sm font-semibold transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmCheckout}
-                disabled={submittingCheckout}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-350 disabled:to-slate-350 disabled:cursor-not-allowed text-white text-sm font-semibold transition cursor-pointer shadow-sm hover:shadow active:scale-98"
-              >
-                {submittingCheckout ? 'Saving…' : 'Confirm Sale'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+   
+      </div>
+    </div>
+  </div>
+)}
     </div>
   )
 }
