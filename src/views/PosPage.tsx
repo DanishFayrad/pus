@@ -1513,15 +1513,7 @@ export default function PosPage() {
                     to continue saving new sales.
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // navigate to billing/upgrade page
-                    }}
-                    className="mt-2.5 font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 underline cursor-pointer"
-                  >
-                    Upgrade Plan
-                  </button>
+          
                 </div>
               </div>
             </div>
