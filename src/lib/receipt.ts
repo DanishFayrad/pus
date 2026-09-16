@@ -55,9 +55,16 @@ export async function printReceipt(sale: Sale) {
     .map(
       (item) => `
       <tr>
-        <td style="padding: 3px 0; text-align: left; vertical-align: top; word-break: break-word;">${item.name}</td>
-        <td style="padding: 3px 2px; text-align: right; vertical-align: top; white-space: nowrap;">${item.quantity}x${formatMoney(item.price)}</td>
-        <td style="padding: 3px 0; text-align: right; vertical-align: top; font-weight: bold; white-space: nowrap;">${formatMoney(item.price * item.quantity)}</td>
+        <td style="padding: 2px 0; text-align: left; vertical-align: top; word-break: break-word;">
+          <strong>${item.name}</strong>
+          ${item.quantity > 1 ? `<div style="font-size: 7.5pt; color: #444;">@ ${formatMoney(item.price)}</div>` : ''}
+        </td>
+        <td style="padding: 2px 0; text-align: center; vertical-align: top; font-weight: bold;">
+          ${item.quantity}
+        </td>
+        <td style="padding: 2px 0; text-align: right; vertical-align: top; font-weight: bold; white-space: nowrap;">
+          ${formatMoney(item.price * item.quantity)}
+        </td>
       </tr>
     `
     )
@@ -66,7 +73,7 @@ export async function printReceipt(sale: Sale) {
   const customerHtml =
     sale.paymentMethod === 'credit' && sale.customerName
       ? `
-      <div style="border-top: 1px dashed #000; padding: 5px 0; font-size: 10px; text-align: left; line-height: 1.3;">
+      <div style="border-top: 1px dashed #000; padding: 3px 0; font-size: 8pt; text-align: left; line-height: 1.3;">
         <strong>Customer:</strong> ${sale.customerName}<br/>
         ${sale.customerPhone ? `<strong>Phone:</strong> ${sale.customerPhone}<br/>` : ''}
         <strong>Account:</strong> Credit
@@ -86,46 +93,53 @@ export async function printReceipt(sale: Sale) {
           }
           * {
             box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+          }
+          html, body {
+            width: 100%;
+            background: #fff;
+            color: #000;
           }
           body {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 9.5px;
-            color: #000;
-            background: #fff;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 8.5pt;
+            line-height: 1.3;
             margin: 0 auto;
-            padding: 2px 4px;
+            padding: 2mm 3.5mm;
             width: 100%;
-            max-width: 195px;
+            max-width: 180px;
             text-align: center;
+            overflow-x: hidden;
           }
           .title {
-            font-size: 13.5px;
+            font-size: 12pt;
             font-weight: 900;
             text-transform: uppercase;
             letter-spacing: 0.3px;
-            margin-bottom: 2px;
+            margin-bottom: 1px;
             word-break: break-word;
           }
           .subtitle {
-            font-size: 8.5px;
+            font-size: 7.5pt;
             color: #333;
             margin-bottom: 4px;
           }
           .info {
             text-align: left;
-            font-size: 9px;
+            font-size: 8pt;
             margin-bottom: 4px;
-            line-height: 1.3;
+            line-height: 1.35;
           }
           .divider {
             border-top: 1px dashed #000;
-            margin: 4px 0;
+            margin: 3px 0;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 9px;
-            margin: 4px 0;
+            font-size: 8pt;
+            margin: 3px 0;
             table-layout: fixed;
           }
           th, td {
@@ -134,32 +148,32 @@ export async function printReceipt(sale: Sale) {
           .total-section {
             display: flex;
             justify-content: space-between;
-            font-size: 11.5px;
-            font-weight: bold;
-            margin-top: 4px;
-            padding-top: 4px;
+            font-size: 10pt;
+            font-weight: 900;
+            margin-top: 3px;
+            padding-top: 3px;
             border-top: 1px dashed #000;
           }
           .barcode-box {
-            margin-top: 6px;
+            margin-top: 5px;
             text-align: center;
           }
           .barcode-box img {
-            max-width: 155px;
+            max-width: 130px;
             height: auto;
             display: inline-block;
           }
           .footer {
             margin-top: 6px;
-            font-size: 8.5px;
+            font-size: 7.5pt;
             line-height: 1.3;
           }
           @media print {
-            body {
-              margin: 0 auto;
-              padding: 0 2px;
-              max-width: 190px;
-              width: 100%;
+            html, body {
+              margin: 0 auto !important;
+              padding: 1.5mm 3mm !important;
+              width: 100% !important;
+              max-width: 172px !important;
             }
           }
         </style>
@@ -179,10 +193,10 @@ export async function printReceipt(sale: Sale) {
 
         <table>
           <thead>
-            <tr>
-              <th style="width: 42%; text-align: left; border-bottom: 1px solid #000; padding-bottom: 2px;">Item</th>
-              <th style="width: 29%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 2px;">Qty</th>
-              <th style="width: 29%; text-align: right; border-bottom: 1px solid #000; padding-bottom: 2px;">Total</th>
+            <tr style="border-bottom: 1px dashed #000;">
+              <th style="width: 50%; text-align: left; padding-bottom: 2px;">Item</th>
+              <th style="width: 16%; text-align: center; padding-bottom: 2px;">Qty</th>
+              <th style="width: 34%; text-align: right; padding-bottom: 2px;">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -193,7 +207,7 @@ export async function printReceipt(sale: Sale) {
         ${customerHtml}
 
         <div class="total-section">
-          <span>TOTAL BILL:</span>
+          <span>TOTAL:</span>
           <span>${formatMoney(sale.total)}</span>
         </div>
 

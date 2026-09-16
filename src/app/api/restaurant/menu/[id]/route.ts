@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import dbConnect from '../../../../../lib/mongodb'
 import { getSession } from '../../../../../lib/auth'
 import MenuItem from '../../../../../models/MenuItem'
+import { getUnifiedMenuCategories } from '../../../../../lib/restaurantMenu'
 
 export const runtime = 'nodejs'
 
@@ -40,12 +41,7 @@ export async function PATCH(
     if (body.enabled !== undefined) item.enabled = Boolean(body.enabled)
 
     await item.save()
-    const menuCats = await MenuItem.distinct('category', { enabled: true })
-    const allCatsSet = new Set<string>()
-    menuCats.forEach((c: any) => c && allCatsSet.add(String(c).trim()))
-    const categories = Array.from(allCatsSet).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    )
+    const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json({
       item: {
@@ -79,12 +75,7 @@ export async function DELETE(
 
     await dbConnect()
     await MenuItem.findByIdAndDelete(id)
-    const menuCats = await MenuItem.distinct('category', { enabled: true })
-    const allCatsSet = new Set<string>()
-    menuCats.forEach((c: any) => c && allCatsSet.add(String(c).trim()))
-    const categories = Array.from(allCatsSet).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    )
+    const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json({
       ok: true,

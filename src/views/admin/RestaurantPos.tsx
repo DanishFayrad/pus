@@ -537,12 +537,17 @@ export default function RestaurantPos() {
     }
     if (!orderToPrint) return
 
+    const finalOrderToPrint: RestaurantOrder = {
+      ...orderToPrint,
+      waiterName: waiterName || orderToPrint.waiterName || 'Staff',
+    }
+
     if (type === 'waiter') {
-      printWaiterSlip(orderToPrint)
+      printWaiterSlip(finalOrderToPrint)
     } else if (type === 'cashier') {
-      printCashierBill(orderToPrint)
+      printCashierBill(finalOrderToPrint)
     } else {
-      printCustomerReceipt(orderToPrint)
+      printCustomerReceipt(finalOrderToPrint)
     }
   }
 
@@ -1191,7 +1196,7 @@ export default function RestaurantPos() {
                           <button
                             type="button"
                             onClick={() => {
-                              const orderToUse: RestaurantOrder = activeOrder || {
+                              const baseOrder = activeOrder || {
                                 id: 'draft',
                                 orderNumber: `TBL-${selectedTable?.tableNumber || 'ORDER'}`,
                                 tableId: selectedTable?.id || '',
@@ -1209,6 +1214,10 @@ export default function RestaurantPos() {
                                 notes: orderNotes,
                                 createdAt: new Date().toISOString(),
                                 updatedAt: new Date().toISOString(),
+                              }
+                              const orderToUse: RestaurantOrder = {
+                                ...baseOrder,
+                                waiterName: waiterName || baseOrder.waiterName || 'Staff',
                               }
                               printCustomerReceipt(orderToUse, {
                                 splitNumber: idx + 1,
@@ -1823,3 +1832,5 @@ export default function RestaurantPos() {
     </div>
   )
 }
+
+

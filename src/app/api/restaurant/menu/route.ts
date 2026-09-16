@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import dbConnect from '../../../../lib/mongodb'
 import { getSession } from '../../../../lib/auth'
 import MenuItem from '../../../../models/MenuItem'
+import { getUnifiedMenuCategories } from '../../../../lib/restaurantMenu'
 
 export const runtime = 'nodejs'
 
@@ -32,13 +33,8 @@ export async function GET(req: Request) {
       _id: undefined,
     }))
 
-    // Dynamically query all distinct categories from MenuItem collection
-    const menuCats = await MenuItem.distinct('category', { enabled: true })
-    const allCatsSet = new Set<string>()
-    menuCats.forEach((c: any) => c && allCatsSet.add(String(c).trim()))
-    const categories = Array.from(allCatsSet).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    )
+    // Unified categories from MenuItem, Product (live catalog), and standard categories
+    const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json({
       items: formatted,
@@ -83,12 +79,7 @@ export async function POST(req: Request) {
       enabled: true,
     })
 
-    const menuCats = await MenuItem.distinct('category', { enabled: true })
-    const allCatsSet = new Set<string>()
-    menuCats.forEach((c: any) => c && allCatsSet.add(String(c).trim()))
-    const categories = Array.from(allCatsSet).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    )
+    const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json(
       {
