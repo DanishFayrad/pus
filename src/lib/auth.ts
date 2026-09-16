@@ -8,7 +8,7 @@ export interface SessionUser {
   id: string
   username: string
   name: string
-  role: 'admin' | 'cashier'
+  role: 'admin' | 'cashier' | 'waiter'
 }
 
 function getSecret(): string {

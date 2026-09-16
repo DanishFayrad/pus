@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
@@ -24,16 +24,55 @@ export default function AdminProducts() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [menuCategories, setMenuCategories] = useState<string[]>([])
+  const [isCustomCategory, setIsCustomCategory] = useState(false)
 
-  const categories = useMemo(
-    () => Array.from(new Set(products.map((p) => p.category || 'General'))).sort(),
-    [products],
-  )
+  // Fetch restaurant menu categories to unify product & restaurant categories
+  useEffect(() => {
+    fetch('/api/restaurant/menu')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.categories)) {
+          setMenuCategories(data.categories.filter((c: string) => c && c !== 'All'))
+        }
+      })
+      .catch((e) => console.error('Failed to load menu categories for products', e))
+  }, [])
+
+  const categories = useMemo(() => {
+    const map = new Map<string, string>()
+
+    // 1. Add all restaurant menu categories (BBQ, Desi Food, Drinks, Fast Food, Mineral Water, Tea, etc.)
+    menuCategories.forEach((c) => {
+      const trimmed = c.trim()
+      if (trimmed && trimmed !== 'All') {
+        map.set(trimmed.toLowerCase(), trimmed)
+      }
+    })
+
+    // 2. Add existing product categories, preserving casing
+    products.forEach((p) => {
+      const trimmed = (p.category || '').trim()
+      if (trimmed) {
+        const lower = trimmed.toLowerCase()
+        if (!map.has(lower)) {
+          map.set(lower, trimmed)
+        }
+      }
+    })
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    )
+  }, [products, menuCategories])
 
   const visibleProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
     return products.filter((p) => {
-      if (categoryFilter && (p.category || 'General') !== categoryFilter) return false
+      if (categoryFilter) {
+        const pCat = (p.category || 'General').trim().toLowerCase()
+        if (pCat !== categoryFilter.trim().toLowerCase()) return false
+      }
       if (!q) return true
       return (
         p.name.toLowerCase().includes(q) ||
@@ -46,6 +85,7 @@ export default function AdminProducts() {
   const startNew = () => {
     setEditingId('new')
     setForm(emptyForm)
+    setIsCustomCategory(false)
     setError(null)
   }
 
@@ -59,12 +99,14 @@ export default function AdminProducts() {
       stock: String(p.stock),
       category: p.category || '',
     })
+    setIsCustomCategory(false)
     setError(null)
   }
 
   const cancel = () => {
     setEditingId(null)
     setForm(emptyForm)
+    setIsCustomCategory(false)
     setError(null)
   }
 
@@ -213,18 +255,50 @@ export default function AdminProducts() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className={`${fieldClass} sm:col-span-1 md:col-span-2`}
             />
-            <input
-              placeholder="Category"
-              list="product-categories"
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className={fieldClass}
-            />
-            <datalist id="product-categories">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            {isCustomCategory ? (
+              <div className="flex items-center gap-1.5 sm:col-span-1 md:col-span-2">
+                <input
+                  placeholder="Type new category..."
+                  value={form.category}
+                  autoFocus
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className={`${fieldClass} flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCustomCategory(false)
+                    setForm({ ...form, category: categories[0] || 'General' })
+                  }}
+                  className="px-2.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  title="Choose existing category"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <select
+                value={form.category}
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setIsCustomCategory(true)
+                    setForm({ ...form, category: '' })
+                  } else {
+                    setIsCustomCategory(false)
+                    setForm({ ...form, category: e.target.value })
+                  }
+                }}
+                className={`${fieldClass} sm:col-span-1 md:col-span-2 cursor-pointer`}
+              >
+                <option value="">Select Category</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+                <option value="__custom__">✨ + Add New Category...</option>
+              </select>
+            )}
             <input
               placeholder="Price"
               type="number"

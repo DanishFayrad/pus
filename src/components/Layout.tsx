@@ -22,6 +22,8 @@ const NAV: NavItem[] = [
   { href: '/admin/sales', label: 'Sales', roles: ['admin'], icon: 'M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14l-4-2-4 2-4-2-4 2V5a2 2 0 012-2z' },
   { href: '/admin/credits', label: 'Credit Book', roles: ['admin', 'cashier'], icon: 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
   { href: '/admin/returns', label: 'Returns', roles: ['admin'], icon: 'M3 10h10a5 5 0 015 5v2m0 0l-3-3m3 3l3-3M3 10l4-4M3 10l4 4' },
+  { href: '/admin/restaurant', label: 'Restaurant POS', roles: ['admin', 'cashier', 'waiter'], icon: 'M12 4a8 8 0 00-8 8v1h16v-1a8 8 0 00-8-8zm-8 11h16v2H4v-2z' },
+  { href: '/admin/restaurant-sales', label: 'Restaurant Sales', roles: ['admin', 'cashier'], icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
   { href: '/pos', label: 'Point of Sale', roles: ['admin', 'cashier'], icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z' },
 ]
 
@@ -36,8 +38,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
 
   const pendingReturns = returnRequests.filter((r) => r.status === 'pending').length
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pos_sidebar_open')
+      if (saved !== null) {
+        setDesktopSidebarOpen(saved === 'true')
+      }
+    } catch {}
+  }, [])
+
+  const toggleDesktopSidebar = () => {
+    setDesktopSidebarOpen((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('pos_sidebar_open', String(next))
+      } catch {}
+      return next
+    })
+  }
 
   const links = useMemo(
     () => (user ? NAV.filter((n) => n.roles.includes(user.role)) : []),
@@ -169,8 +191,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200/70 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
-        <div className="flex h-16 items-center border-b border-slate-200/70 px-4 dark:border-slate-800">{brand}</div>
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-slate-200/70 bg-white dark:border-slate-800 dark:bg-slate-900 transition-all duration-300 ease-in-out lg:flex ${
+          desktopSidebarOpen ? 'w-64 translate-x-0' : 'w-64 -translate-x-full pointer-events-none'
+        }`}
+      >
+        <div className="flex h-16 items-center justify-between border-b border-slate-200/70 px-4 dark:border-slate-800">
+          {brand}
+          <button
+            type="button"
+            onClick={toggleDesktopSidebar}
+            className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
+        </div>
         {navList}
         {userFooter}
       </aside>
@@ -209,14 +248,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main column */}
-      <div className="lg:pl-64">
+      <div className={`transition-all duration-300 ease-in-out ${desktopSidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
         {/* Topbar */}
         <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200/70 bg-white/80 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80 sm:px-6">
           <button
             type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 lg:hidden"
-            aria-label="Open menu"
+            onClick={() => {
+              if (window.innerWidth < 1024) {
+                setDrawerOpen(true)
+              } else {
+                toggleDesktopSidebar()
+              }
+            }}
+            className="-ml-1 rounded-xl p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white transition cursor-pointer flex items-center justify-center"
+            title={desktopSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label="Toggle menu"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M3 12h18M3 18h18" />

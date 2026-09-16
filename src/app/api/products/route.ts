@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import dbConnect from '../../../lib/mongodb'
 import { getSession } from '../../../lib/auth'
 import Product from '../../../models/Product'
+import MenuItem from '../../../models/MenuItem'
 
 export const runtime = 'nodejs'
 
@@ -11,13 +12,32 @@ export async function GET() {
 
   try {
     await dbConnect()
-    const products = await Product.find().sort({ name: 1 }).lean()
+    const [products, menuCats, prodCats] = await Promise.all([
+      Product.find().sort({ name: 1 }).lean(),
+      MenuItem.distinct('category', { enabled: true }).catch(() => []),
+      Product.distinct('category').catch(() => []),
+    ])
+
+    const set = new Set<string>()
+    menuCats.forEach((c: any) => c && set.add(String(c).trim()))
+    prodCats.forEach((c: any) => c && set.add(String(c).trim()))
+
+    const map = new Map<string, string>()
+    Array.from(set).forEach((c) => {
+      const lower = c.toLowerCase()
+      if (!map.has(lower)) map.set(lower, c)
+    })
+    const categories = Array.from(map.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    )
+
     return NextResponse.json({
       products: products.map((p: any) => ({
         ...p,
         id: String(p._id),
         _id: undefined,
       })),
+      categories,
     })
   } catch (e) {
     console.error('GET /products error', e)

@@ -3,7 +3,7 @@ import { useStore } from '../../context/StoreContext'
 import { useConfirm } from '../../components/ConfirmProvider'
 import Spinner from '../../components/Spinner'
 import { formatMoney as fmt } from '../../lib/currency'
-import { formatDateTime, pktDayKey, formatDate, pktTimeKey } from '../../lib/datetime'
+import { formatDateTime, pktDayKey, formatDate, pktTimeKey, matchesDateTimeFilter as checkDateTimeFilter } from '../../lib/datetime'
 import { printReceipt, printVendorClosingSlip } from '../../lib/receipt'
 
 export default function AdminSales() {
@@ -75,93 +75,17 @@ export default function AdminSales() {
     }
   }
 
-  // Helper to get YYYY-MM-DD for Pakistan time N days ago (timezone-safe)
-  const getPktDateString = (offsetDays = 0): string => {
-    const d = new Date(Date.now() - offsetDays * 24 * 60 * 60 * 1000)
-    return pktDayKey(d)
-  }
-
   // Helper to check if a Date or ISO string matches the active date & time filters
   const matchesDateTimeFilter = useCallback(
     (isoDate: string | Date | undefined | null): boolean => {
-      if (!isoDate) return false
-      const day = pktDayKey(isoDate)
-      const time = pktTimeKey(isoDate)
-      const fullDateTime = `${day} ${time}`
-
-      // 1. When Date is Custom
-      if (dateFilter === 'custom') {
-        // When Time is also Custom, treat as a single continuous DateTime window (e.g. 11 Sep 17:00 to 12 Sep 03:00)
-        if (timeFilter === 'custom') {
-          const startFull = customStart ? `${customStart} ${customTimeStart || '00:00'}` : ''
-          const endFull = customEnd ? `${customEnd} ${customTimeEnd || '23:59'}` : ''
-
-          if (startFull && endFull) {
-            return fullDateTime >= startFull && fullDateTime <= endFull
-          } else if (startFull) {
-            return fullDateTime >= startFull
-          } else if (endFull) {
-            return fullDateTime <= endFull
-          }
-          return true
-        }
-
-        // Custom Date Range with preset or 'all' time
-        let dateMatch = true
-        if (customStart && customEnd) {
-          dateMatch = day >= customStart && day <= customEnd
-        } else if (customStart) {
-          dateMatch = day >= customStart
-        } else if (customEnd) {
-          dateMatch = day <= customEnd
-        }
-        if (!dateMatch) return false
-
-        if (timeFilter === 'morning') return time >= '08:00' && time <= '15:59'
-        if (timeFilter === 'evening') return time >= '16:00' && time <= '23:59'
-        if (timeFilter === 'night') return time >= '00:00' && time <= '07:59'
-        return true
-      }
-
-      // 2. Preset Date Filters ('today', 'yesterday', 'last7', etc.)
-      let dateMatch = false
-      switch (dateFilter) {
-        case 'today':
-          dateMatch = day === getPktDateString(0)
-          break
-        case 'yesterday':
-          dateMatch = day === getPktDateString(1)
-          break
-        case 'last7':
-          dateMatch = day >= getPktDateString(6) && day <= getPktDateString(0)
-          break
-        case 'last10':
-          dateMatch = day >= getPktDateString(9) && day <= getPktDateString(0)
-          break
-        case 'last30':
-          dateMatch = day >= getPktDateString(29) && day <= getPktDateString(0)
-          break
-        default:
-          dateMatch = true
-          break
-      }
-      if (!dateMatch) return false
-
-      // 3. Time Filter for non-custom date presets
-      if (timeFilter === 'all') return true
-      if (timeFilter === 'morning') return time >= '08:00' && time <= '15:59'
-      if (timeFilter === 'evening') return time >= '16:00' && time <= '23:59'
-      if (timeFilter === 'night') return time >= '00:00' && time <= '07:59'
-      if (timeFilter === 'custom') {
-        const startTime = customTimeStart || '00:00'
-        const endTime = customTimeEnd || '23:59'
-        if (startTime <= endTime) {
-          return time >= startTime && time <= endTime
-        } else {
-          return time >= startTime || time <= endTime
-        }
-      }
-      return true
+      return checkDateTimeFilter(isoDate, {
+        dateFilter,
+        customStart,
+        customEnd,
+        timeFilter,
+        customTimeStart,
+        customTimeEnd,
+      })
     },
     [dateFilter, customStart, customEnd, timeFilter, customTimeStart, customTimeEnd],
   )
@@ -422,6 +346,7 @@ export default function AdminSales() {
         return `Yesterday (${formatDate(y)})`
       }
       case 'last7': return 'Last 7 Days'
+      case 'last10': return 'Last 10 Days'
       case 'last30': return 'Last 30 Days'
       case 'custom': return `${customStart} to ${customEnd}`
       default: return 'All Time'
@@ -522,7 +447,7 @@ export default function AdminSales() {
                 </button>
               ))}
             </div>
-            {sales.length < (serverStats?.salesCount || 1000) && (dateFilter === 'all' || dateFilter === 'last30' || dateFilter === 'last10') && (
+            {sales.length < (serverStats?.salesCount || 1000) && (
               <div className="mt-2">
                 <button
                   type="button"
