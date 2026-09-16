@@ -296,17 +296,18 @@ export default function RestaurantPos() {
     }
   }, [tables])
 
-  // Filtered Menu Items (by category and search query)
+  // Filtered Menu Items (by category, barcode, and search query)
   const filteredMenu = useMemo(() => {
     return menuItems.filter((item) => {
-      const matchCat =
-        selectedCategory === 'All' ||
-        (item.category && item.category.toLowerCase() === selectedCategory.toLowerCase())
+      const itemCat = (item.category || '').trim().toLowerCase()
+      const selCat = selectedCategory.trim().toLowerCase()
+      const matchCat = selectedCategory === 'All' || itemCat === selCat
       const q = searchQuery.trim().toLowerCase()
       const matchQ =
         !q ||
         item.name.toLowerCase().includes(q) ||
-        (item.category && item.category.toLowerCase().includes(q))
+        itemCat.includes(q) ||
+        (Boolean(item.barcode) && String(item.barcode).toLowerCase().includes(q))
       return matchCat && matchQ
     })
   }, [menuItems, selectedCategory, searchQuery])
@@ -847,7 +848,9 @@ export default function RestaurantPos() {
                   {menuCategories
                     .filter((c) => c !== 'All')
                     .map((cat) => {
-                      const count = menuItems.filter((i) => i.category === cat).length
+                      const count = menuItems.filter(
+                        (i) => (i.category || '').trim().toLowerCase() === cat.trim().toLowerCase(),
+                      ).length
                       return (
                         <option
                           key={cat}

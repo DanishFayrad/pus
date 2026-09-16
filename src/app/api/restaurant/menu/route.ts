@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import dbConnect from '../../../../lib/mongodb'
 import { getSession } from '../../../../lib/auth'
 import MenuItem from '../../../../models/MenuItem'
+import Product from '../../../../models/Product'
 import { getUnifiedMenuCategories } from '../../../../lib/restaurantMenu'
 
 export const runtime = 'nodejs'
@@ -17,23 +18,73 @@ export async function GET(req: Request) {
 
     await dbConnect()
 
-    const filter: Record<string, any> = { enabled: true }
+    const menuFilter: Record<string, any> = { enabled: true }
+    const productFilter: Record<string, any> = {}
+
     if (category && category !== 'All') {
-      filter.category = category
+      const escaped = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      menuFilter.category = { $regex: new RegExp(`^${escaped}$`, 'i') }
+      productFilter.category = { $regex: new RegExp(`^${escaped}$`, 'i') }
     }
+
     if (query && query.trim()) {
-      filter.name = { $regex: query.trim(), $options: 'i' }
+      const escapedQuery = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      menuFilter.name = { $regex: escapedQuery, $options: 'i' }
+      productFilter.$or = [
+        { name: { $regex: escapedQuery, $options: 'i' } },
+        { barcode: { $regex: escapedQuery, $options: 'i' } },
+        { category: { $regex: escapedQuery, $options: 'i' } },
+      ]
     }
 
-    const items = await MenuItem.find(filter).sort({ category: 1, name: 1 }).lean()
+    const [menuDocs, productDocs] = await Promise.all([
+      MenuItem.find(menuFilter).sort({ category: 1, name: 1 }).lean().catch(() => []),
+      Product.find(productFilter).sort({ category: 1, name: 1 }).lean().catch(() => []),
+    ])
 
-    const formatted = items.map((i: any) => ({
-      ...i,
-      id: String(i._id),
-      _id: undefined,
-    }))
+    const seenNames = new Set<string>()
+    const formatted: any[] = []
 
-    // Unified categories from MenuItem, Product (live catalog), and standard categories
+    // 1. Add customized MenuItems first
+    for (const m of (menuDocs as any[])) {
+      const nameKey = (m.name || '').trim().toLowerCase()
+      if (nameKey) seenNames.add(nameKey)
+      formatted.push({
+        id: String(m._id),
+        name: m.name,
+        category: m.category || 'General',
+        price: Number(m.price) || 0,
+        emoji: m.emoji || '🍽️',
+        enabled: m.enabled !== false,
+      })
+    }
+
+    // 2. Add live products from Product collection (Biscuits, Bottles, Candy, etc.)
+    for (const p of (productDocs as any[])) {
+      const nameKey = (p.name || '').trim().toLowerCase()
+      if (seenNames.has(nameKey)) continue
+      seenNames.add(nameKey)
+
+      formatted.push({
+        id: String(p._id),
+        name: p.name,
+        category: p.category || 'General',
+        price: Number(p.price) || 0,
+        barcode: p.barcode,
+        stock: p.stock,
+        emoji: '🍽️',
+        enabled: true,
+      })
+    }
+
+    // Sort by category then name
+    formatted.sort((a, b) => {
+      const catCompare = (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' })
+      if (catCompare !== 0) return catCompare
+      return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+    })
+
+    // Unified distinct categories from MenuItem and Product
     const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json({

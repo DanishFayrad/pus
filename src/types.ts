@@ -130,6 +130,8 @@ export interface MenuItem {
   category: string
   price: number
   emoji?: string
+  barcode?: string
+  stock?: number
   enabled: boolean
 }
 

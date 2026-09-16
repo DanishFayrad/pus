@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import dbConnect from '../../../../../lib/mongodb'
 import { getSession } from '../../../../../lib/auth'
 import MenuItem from '../../../../../models/MenuItem'
+import Product from '../../../../../models/Product'
 import { getUnifiedMenuCategories } from '../../../../../lib/restaurantMenu'
 
 export const runtime = 'nodejs'
@@ -26,8 +27,32 @@ export async function PATCH(
     const body = await req.json().catch(() => ({}))
     await dbConnect()
 
-    const item = await MenuItem.findById(id)
+    let item = await MenuItem.findById(id)
     if (!item) {
+      // Check if it's a product from Product collection
+      const prod = await Product.findById(id)
+      if (prod) {
+        if (body.name !== undefined) prod.name = String(body.name).trim()
+        if (body.category !== undefined) prod.category = String(body.category).trim()
+        if (body.price !== undefined) {
+          const p = Number(body.price)
+          if (!isNaN(p) && p >= 0) prod.price = p
+        }
+        await prod.save()
+        const categories = await getUnifiedMenuCategories()
+        return NextResponse.json({
+          item: {
+            id: String(prod._id),
+            name: prod.name,
+            category: prod.category,
+            price: prod.price,
+            barcode: prod.barcode,
+            stock: prod.stock,
+            enabled: true,
+          },
+          categories: ['All', ...categories],
+        })
+      }
       return NextResponse.json({ error: 'Item not found' }, { status: 404 })
     }
 
@@ -74,7 +99,10 @@ export async function DELETE(
     }
 
     await dbConnect()
-    await MenuItem.findByIdAndDelete(id)
+    const deletedItem = await MenuItem.findByIdAndDelete(id)
+    if (!deletedItem) {
+      await Product.findByIdAndDelete(id)
+    }
     const categories = await getUnifiedMenuCategories()
 
     return NextResponse.json({
