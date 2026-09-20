@@ -8,7 +8,6 @@ import { printReceipt, printVendorClosingSlip } from '../../lib/receipt'
 
 export default function AdminSales() {
   const { sales, deleteSale, returnRequests, products, refreshSales, stats: serverStats } = useStore()
-  const [loadingMore, setLoadingMore] = useState(false)
   const confirm = useConfirm()
   const [expanded, setExpanded] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -510,25 +509,6 @@ export default function AdminSales() {
                 </button>
               ))}
             </div>
-            {sales.length < (serverStats?.salesCount || 1000) && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={async () => {
-                    setLoadingMore(true)
-                    try {
-                      await refreshSales(sales.length + 500)
-                    } finally {
-                      setLoadingMore(false)
-                    }
-                  }}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1.5 cursor-pointer"
-                >
-                  {loadingMore ? 'Loading older receipts...' : `📥 Table showing recent ${sales.length} receipts. Click to load more`}
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Vendor / Category Selector */}
