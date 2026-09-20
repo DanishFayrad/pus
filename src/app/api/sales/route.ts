@@ -5,6 +5,8 @@ import { getSession } from '../../../lib/auth'
 import Product from '../../../models/Product'
 import Sale from '../../../models/Sale'
 
+import { pktDayKey, shiftPktDay } from '../../../lib/datetime'
+
 export const runtime = 'nodejs'
 
 interface IncomingItem {
@@ -18,9 +20,10 @@ export async function GET(req: Request) {
 
   try {
     const { searchParams } = new URL(req.url)
+    const range = searchParams.get('range') || '' // all, today, yesterday, last7, last10, last30, custom
     const limitParam = searchParams.get('limit')
     const all = searchParams.get('all') === 'true'
-    const limit = all ? 0 : Math.min(1000, Math.max(1, parseInt(limitParam || '300', 10)))
+    const limit = all ? 0 : Math.min(2000, Math.max(1, parseInt(limitParam || '500', 10)))
 
     const startDateParam = searchParams.get('startDate')
     const endDateParam = searchParams.get('endDate')
@@ -29,11 +32,52 @@ export async function GET(req: Request) {
     await dbConnect()
 
     const filter: Record<string, any> = {}
-    if (startDateParam || endDateParam) {
-      filter.date = {}
-      if (startDateParam) filter.date.$gte = new Date(startDateParam)
-      if (endDateParam) filter.date.$lte = new Date(endDateParam)
+
+    // Range filtering in Pakistan Standard Time (PKT UTC+5)
+    const todayPkt = pktDayKey(new Date())
+    if (range === 'today') {
+      filter.date = {
+        $gte: new Date(`${todayPkt}T00:00:00.000+05:00`),
+        $lte: new Date(`${todayPkt}T23:59:59.999+05:00`),
+      }
+    } else if (range === 'yesterday') {
+      const yesterdayPkt = shiftPktDay(todayPkt, -1)
+      filter.date = {
+        $gte: new Date(`${yesterdayPkt}T00:00:00.000+05:00`),
+        $lte: new Date(`${yesterdayPkt}T23:59:59.999+05:00`),
+      }
+    } else if (range === 'last7') {
+      const sevenDaysAgoPkt = shiftPktDay(todayPkt, -6)
+      filter.date = {
+        $gte: new Date(`${sevenDaysAgoPkt}T00:00:00.000+05:00`),
+        $lte: new Date(`${todayPkt}T23:59:59.999+05:00`),
+      }
+    } else if (range === 'last10') {
+      const tenDaysAgoPkt = shiftPktDay(todayPkt, -9)
+      filter.date = {
+        $gte: new Date(`${tenDaysAgoPkt}T00:00:00.000+05:00`),
+        $lte: new Date(`${todayPkt}T23:59:59.999+05:00`),
+      }
+    } else if (range === 'last30') {
+      const thirtyDaysAgoPkt = shiftPktDay(todayPkt, -29)
+      filter.date = {
+        $gte: new Date(`${thirtyDaysAgoPkt}T00:00:00.000+05:00`),
+        $lte: new Date(`${todayPkt}T23:59:59.999+05:00`),
+      }
+    } else if (range === 'custom' || startDateParam || endDateParam) {
+      const s = startDateParam || ''
+      const e = endDateParam || s
+      if (s) {
+        const minD = s <= e ? s : e
+        const maxD = s <= e ? e : s
+        filter.date = {
+          $gte: new Date(`${minD}T00:00:00.000+05:00`),
+          $lte: new Date(`${maxD}T23:59:59.999+05:00`),
+        }
+      }
     }
+    // If range === 'all', no date restriction is applied!
+
     if (paymentMethod && paymentMethod !== 'all') {
       filter.paymentMethod = paymentMethod
     }
@@ -43,10 +87,13 @@ export async function GET(req: Request) {
       query = query.limit(limit)
     }
 
+    const matchStage = Object.keys(filter).length > 0 ? [{ $match: filter }] : []
+
     // Run query and aggregations in parallel for maximum speed
-    const [salesDocs, [statsResult], [todayResult]] = await Promise.all([
+    const [salesDocs, [statsResult], [todayResult], dailySummaryDocs] = await Promise.all([
       query,
       Sale.aggregate([
+        ...matchStage,
         {
           $group: {
             _id: null,
@@ -59,16 +106,7 @@ export async function GET(req: Request) {
         },
       ]),
       (() => {
-        // Pakistan Time (Asia/Karachi UTC+5) start of today
-        const now = new Date()
-        const formatter = new Intl.DateTimeFormat('en-CA', {
-          timeZone: 'Asia/Karachi',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-        })
-        const todayStr = formatter.format(now) // YYYY-MM-DD
-        const startOfToday = new Date(`${todayStr}T00:00:00+05:00`)
+        const startOfToday = new Date(`${todayPkt}T00:00:00+05:00`)
         return Sale.aggregate([
           { $match: { date: { $gte: startOfToday } } },
           {
@@ -79,12 +117,35 @@ export async function GET(req: Request) {
           },
         ])
       })(),
+      Sale.aggregate([
+        ...matchStage,
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$date', timezone: '+05:00' } },
+            revenue: { $sum: '$total' },
+            cost: { $sum: '$cost' },
+            profit: { $sum: '$profit' },
+            txCount: { $sum: 1 },
+            itemsSold: { $sum: { $sum: '$items.quantity' } },
+          },
+        },
+        { $sort: { _id: -1 } },
+      ]),
     ])
 
     const sales = salesDocs.map((s: any) => ({
       ...s,
       id: String(s._id),
       _id: undefined,
+    }))
+
+    const dailySummary = dailySummaryDocs.map((d: any) => ({
+      date: d._id,
+      revenue: d.revenue || 0,
+      cost: d.cost || 0,
+      profit: d.profit || 0,
+      txCount: d.txCount || 0,
+      itemsSold: d.itemsSold || 0,
     }))
 
     return NextResponse.json({
@@ -97,6 +158,7 @@ export async function GET(req: Request) {
         itemsSold: statsResult?.itemsSold || 0,
         todayRevenue: todayResult?.todayRevenue || 0,
       },
+      dailySummary,
     })
   } catch (e) {
     console.error('GET /sales error', e)

@@ -34,7 +34,9 @@ export async function GET(req: Request) {
 
     // Date range calculations in Pakistan Standard Time (PKT UTC+5)
     const todayPkt = pktDayKey(new Date())
-    if (range === 'today') {
+    if (range === 'all') {
+      // All-time: do not restrict createdAt, return all historical orders
+    } else if (range === 'today') {
       queryFilter.createdAt = {
         $gte: new Date(`${todayPkt}T00:00:00.000+05:00`),
         $lte: new Date(`${todayPkt}T23:59:59.999+05:00`),
@@ -165,6 +167,20 @@ export async function GET(req: Request) {
     // Dish sales ranking
     const dishSalesMap = new Map<string, { name: string; category: string; quantity: number; revenue: number }>()
 
+    // Date-wise sales tracking
+    const dailyMap = new Map<
+      string,
+      {
+        date: string
+        totalSales: number
+        orderCount: number
+        itemsCount: number
+        cash: number
+        card: number
+        credit: number
+      }
+    >()
+
     // Process orders
     orders.forEach((o: any) => {
       const orderTotal = Number(o.total) || 0
@@ -176,6 +192,23 @@ export async function GET(req: Request) {
       totalSubtotal += orderSub
       totalDiscount += orderDisc
       totalTax += orderTax
+
+      // Date-wise breakdown
+      const dayStr = pktDayKey(o.createdAt)
+      if (!dailyMap.has(dayStr)) {
+        dailyMap.set(dayStr, {
+          date: dayStr,
+          totalSales: 0,
+          orderCount: 0,
+          itemsCount: 0,
+          cash: 0,
+          card: 0,
+          credit: 0,
+        })
+      }
+      const dayData = dailyMap.get(dayStr)!
+      dayData.totalSales += orderTotal
+      dayData.orderCount += 1
 
       // Waiter mapping
       const wName = String(o.waiterName || o.cashierName || 'Staff').trim() || 'Staff'
@@ -201,6 +234,15 @@ export async function GET(req: Request) {
       } else {
         paymentBreakdown.cash.count += 1
         paymentBreakdown.cash.total += orderTotal
+      }
+
+      // Daily payment breakdown
+      if (pm === 'card') {
+        dayData.card += orderTotal
+      } else if (pm === 'credit') {
+        dayData.credit += orderTotal
+      } else {
+        dayData.cash += orderTotal
       }
 
       // Section calculation
@@ -240,6 +282,7 @@ export async function GET(req: Request) {
           secData.itemsCount += qty
           tData.itemsCount += qty
           wData.itemsCount += qty
+          dayData.itemsCount += qty
 
           // Table item frequency
           const curFreq = tData.itemFrequency.get(it.name) || 0
@@ -339,6 +382,9 @@ export async function GET(req: Request) {
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 10)
 
+    // Format daily sales breakdown array (newest date first)
+    const dailySales = Array.from(dailyMap.values()).sort((a, b) => b.date.localeCompare(a.date))
+
     // Filter orders if search query is provided
     let filteredOrders = orders
     if (search) {
@@ -374,6 +420,7 @@ export async function GET(req: Request) {
       waiters,
       allWaiters,
       topDishes,
+      dailySales,
       orders: formattedOrders,
     })
   } catch (e) {

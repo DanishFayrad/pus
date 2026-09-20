@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
 import Link from 'next/link'
 import { formatMoney } from '../../lib/currency'
-import { formatDateTime } from '../../lib/datetime'
+import { formatDateTime, formatDate, pktDayKey } from '../../lib/datetime'
 import { printCustomerReceipt, printCashierBill, printWaiterSlip } from '../../lib/restaurantReceipt'
 import type { RestaurantOrder } from '../../types'
 
@@ -45,6 +45,16 @@ interface DishMetric {
   revenue: number
 }
 
+interface DailySalesMetric {
+  date: string
+  totalSales: number
+  orderCount: number
+  itemsCount: number
+  cash: number
+  card: number
+  credit: number
+}
+
 interface SalesResponse {
   summary: {
     totalRevenue: number
@@ -65,6 +75,7 @@ interface SalesResponse {
   waiters?: WaiterMetric[]
   allWaiters?: string[]
   topDishes: DishMetric[]
+  dailySales?: DailySalesMetric[]
   orders: RestaurantOrder[]
 }
 
@@ -73,8 +84,8 @@ export default function RestaurantSalesView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Filter States
-  const [dateRange, setDateRange] = useState<'today' | 'yesterday' | 'last7' | 'last30' | 'custom'>('today')
+  // Filter States - Default to 'all' so users immediately see their sales
+  const [dateRange, setDateRange] = useState<'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'custom'>('all')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0])
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
   const [selectedSection, setSelectedSection] = useState<string>('ALL')
@@ -83,8 +94,8 @@ export default function RestaurantSalesView() {
   const [paymentMethod, setPaymentMethod] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // View States: 3 Tabs (Tables, Orders Ledger, Dishes)
-  const [activeTab, setActiveTab] = useState<'tables' | 'orders' | 'dishes'>('tables')
+  // View States: 4 Tabs (Tables, Daily Sales, Orders Ledger, Dishes)
+  const [activeTab, setActiveTab] = useState<'tables' | 'daily' | 'orders' | 'dishes'>('tables')
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
 
   // Fetch Sales Data
@@ -315,6 +326,7 @@ export default function RestaurantSalesView() {
           <span className="text-xs font-bold text-slate-400 mr-1">Period:</span>
           {(
             [
+              { id: 'all', label: '🌟 All Dates' },
               { id: 'today', label: '📅 Today' },
               { id: 'yesterday', label: 'Yesterday' },
               { id: 'last7', label: 'Last 7 Days' },
@@ -355,6 +367,30 @@ export default function RestaurantSalesView() {
           </div>
         )}
       </div>
+
+      {/* Helpful banner if a specific single-day filter has 0 orders */}
+      {data && !loading && data.summary.totalOrders === 0 && (
+        <div className="p-4 rounded-2xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">ℹ️</span>
+            <div>
+              <div className="font-bold text-slate-900 dark:text-white">
+                Is selected period ({dateRange.toUpperCase()}) mein koi order record nahi hua.
+              </div>
+              <div className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+                Aapki tamam sales database mein bilkul mehfooz hain. Tamam sales dekhne ke liye &apos;All Dates&apos; par click karein.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDateRange('all')}
+            className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-black text-xs hover:bg-blue-700 transition cursor-pointer self-start sm:self-auto shrink-0 shadow-sm"
+          >
+            🌟 View All Dates (Rs 70,500+)
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs font-bold flex items-center justify-between">
@@ -532,6 +568,18 @@ export default function RestaurantSalesView() {
             >
               <span>🪑</span>
               <span>Table-by-Table Sales ({data?.tables?.length || 0})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('daily')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'daily'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <span>📅</span>
+              <span>Daily Sales ({data?.dailySales?.length || 0} Days)</span>
             </button>
             <button
               type="button"
@@ -766,6 +814,83 @@ export default function RestaurantSalesView() {
         )}
 
         {/* ========================================================================= */}
+        {/* VIEW: DAILY SALES (DATE-WISE BREAKDOWN)                                   */}
+        {/* ========================================================================= */}
+        {activeTab === 'daily' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4 text-right">Orders Count</th>
+                  <th className="py-3 px-4 text-right">Dishes Served</th>
+                  <th className="py-3 px-4 text-right">Cash</th>
+                  <th className="py-3 px-4 text-right">Online / Card</th>
+                  <th className="py-3 px-4 text-right">Total Revenue</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                {!data?.dailySales || data.dailySales.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">
+                      No daily sales records found for this period.
+                    </td>
+                  </tr>
+                ) : (
+                  data.dailySales.map((d) => (
+                    <tr
+                      key={d.date}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition"
+                    >
+                      <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white flex items-center gap-2">
+                        <span className="h-7 w-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center font-black text-xs">
+                          📅
+                        </span>
+                        <div>
+                          <div>{formatDate(d.date)}</div>
+                          <div className="text-[10.5px] font-mono text-slate-400 font-normal">{d.date}</div>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold text-slate-700 dark:text-slate-300">
+                        {d.orderCount} orders
+                      </td>
+                      <td className="py-3.5 px-4 text-right text-slate-500">
+                        {d.itemsCount} dishes
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                        {formatMoney(d.cash)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono text-blue-600 dark:text-blue-400 font-bold">
+                        {formatMoney(d.card)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-black text-sm text-slate-900 dark:text-white">
+                        {formatMoney(d.totalSales)}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStartDate(d.date)
+                            setEndDate(d.date)
+                            setDateRange('custom')
+                            setActiveTab('orders')
+                          }}
+                          className="px-3 py-1 rounded-lg text-[11px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 hover:bg-blue-100 transition cursor-pointer"
+                          title={`View receipts for ${d.date}`}
+                        >
+                          View {d.orderCount} Orders
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
         {/* VIEW 2: DETAILED ORDERS LEDGER                                             */}
         {/* ========================================================================= */}
         {activeTab === 'orders' && (
@@ -802,8 +927,27 @@ export default function RestaurantSalesView() {
                 <p className="mt-2 text-xs">No restaurant orders found matching current filters</p>
               </div>
             ) : (
-              data?.orders.map((order) => {
-                const isExpanded = expandedOrderId === order.id
+              (() => {
+                let lastDate = ''
+                return data?.orders.map((order) => {
+                  const isExpanded = expandedOrderId === order.id
+                  const orderDate = pktDayKey(order.createdAt)
+                  const showDateHeader = orderDate !== lastDate
+                  if (showDateHeader) {
+                    lastDate = orderDate
+                  }
+
+                  return (
+                    <Fragment key={order.id}>
+                      {showDateHeader && (
+                        <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800/80 border-y border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs font-black text-slate-700 dark:text-slate-300">
+                          <div className="flex items-center gap-1.5">
+                            <span>📅</span>
+                            <span>{formatDate(order.createdAt)}</span>
+                            <span className="text-[10.5px] text-slate-400 font-mono font-normal">({orderDate})</span>
+                          </div>
+                        </div>
+                      )}
 
                 return (
                   <div key={order.id} className="p-4 transition hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
@@ -926,12 +1070,14 @@ export default function RestaurantSalesView() {
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  </Fragment>
                 )
               })
-            )}
-          </div>
-        )}
+            })()
+          )}
+        </div>
+      )}
 
         {/* ========================================================================= */}
         {/* VIEW 3: POPULAR DISHES SOLD RANKING                                       */}

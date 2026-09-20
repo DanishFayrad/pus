@@ -24,6 +24,61 @@ export default function AdminSales() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'receipts' | 'products' | 'daily' | 'vendor-closing'>('receipts')
 
+  // Server-side calculated stats across all database records for active range
+  const [filterStats, setFilterStats] = useState<{
+    totalRevenue: number
+    totalCost: number
+    profit: number
+    salesCount: number
+    itemsSold: number
+    todayRevenue: number
+  } | null>(null)
+  const [serverDailySummary, setServerDailySummary] = useState<
+    Array<{
+      date: string
+      revenue: number
+      cost: number
+      profit: number
+      txCount: number
+      itemsSold: number
+    }>
+  >([])
+  const [loadingFilterStats, setLoadingFilterStats] = useState(false)
+
+  // Fetch real aggregated totals from server whenever date range changes
+  useEffect(() => {
+    let cancelled = false
+    const fetchRangeStats = async () => {
+      setLoadingFilterStats(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('range', dateFilter)
+        if (dateFilter === 'custom') {
+          params.set('startDate', customStart)
+          params.set('endDate', customEnd)
+        }
+        params.set('limit', '500')
+        const res = await fetch(`/api/sales?${params.toString()}`)
+        if (res.ok) {
+          const json = await res.json()
+          if (!cancelled) {
+            if (json.stats) setFilterStats(json.stats)
+            if (json.dailySummary) setServerDailySummary(json.dailySummary)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch filtered sales stats:', err)
+      } finally {
+        if (!cancelled) setLoadingFilterStats(false)
+      }
+    }
+
+    fetchRangeStats()
+    return () => {
+      cancelled = true
+    }
+  }, [dateFilter, customStart, customEnd])
+
   // Search & Pagination
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -126,17 +181,21 @@ export default function AdminSales() {
 
   // Calculate stats for searched/filtered sales
   const totals = useMemo(() => {
-    const isAllTimeUnfiltered =
-      dateFilter === 'all' &&
+    const isRangeUnfiltered =
       timeFilter === 'all' &&
       categoryFilter === 'all' &&
       !searchQuery.trim()
 
-    if (isAllTimeUnfiltered && serverStats) {
-      let revenue = serverStats.totalRevenue
-      let cost = serverStats.totalCost
-      let profit = serverStats.profit
-      const approvedReturns = returnRequests.filter((r) => r.status === 'approved')
+    const activeStats = filterStats || (dateFilter === 'all' ? serverStats : null)
+
+    if (isRangeUnfiltered && activeStats) {
+      let revenue = activeStats.totalRevenue
+      let cost = activeStats.totalCost
+      let profit = activeStats.profit
+      const approvedReturns = returnRequests.filter((r) => {
+        if (r.status !== 'approved') return false
+        return matchesDateTimeFilter(r.createdAt || r.updatedAt)
+      })
       approvedReturns.forEach((r) => {
         const p = products.find((prod) => String(prod.id) === String(r.productId))
         if (p) {
@@ -149,7 +208,7 @@ export default function AdminSales() {
         revenue: Math.max(0, revenue),
         cost: Math.max(0, cost),
         profit,
-        sales: serverStats.salesCount,
+        sales: activeStats.salesCount,
       }
     }
 
@@ -205,6 +264,7 @@ export default function AdminSales() {
     returnRequests,
     products,
     serverStats,
+    filterStats,
     dateFilter,
     timeFilter,
     categoryFilter,
@@ -312,8 +372,11 @@ export default function AdminSales() {
     })).sort((a, b) => b.totalRevenue - a.totalRevenue)
   }, [searchedSales, categoryFilter, productMap])
 
-  // Group sales by day based on searched sales
+  // Group sales by day based on searched sales or serverDailySummary
   const dailySales = useMemo(() => {
+    if (categoryFilter === 'all' && timeFilter === 'all' && !searchQuery.trim() && serverDailySummary.length > 0) {
+      return serverDailySummary
+    }
     const map = new Map<string, { date: string; revenue: number; profit: number; itemsSold: number; txCount: number }>()
     searchedSales.forEach((s) => {
       const day = pktDayKey(s.date)
@@ -335,7 +398,7 @@ export default function AdminSales() {
       }
     })
     return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date))
-  }, [searchedSales])
+  }, [searchedSales, categoryFilter, timeFilter, searchQuery, serverDailySummary])
 
   // Date Range label for slip printing
   const activeDateRangeLabel = useMemo(() => {
