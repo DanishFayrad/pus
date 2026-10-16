@@ -44,8 +44,11 @@ export default function AdminSales() {
     }>
   >([])
   const [loadingFilterStats, setLoadingFilterStats] = useState(false)
+  // Sales fetched from the server for the active cashier filter. The store only holds
+  // the latest few hundred sales, so a cashier's older sales would otherwise be missing.
+  const [cashierSales, setCashierSales] = useState<typeof sales>([])
 
-  // Fetch real aggregated totals from server whenever date range changes
+  // Fetch real aggregated totals from server whenever date range or cashier changes
   useEffect(() => {
     let cancelled = false
     const fetchRangeStats = async () => {
@@ -57,6 +60,7 @@ export default function AdminSales() {
           params.set('startDate', customStart)
           params.set('endDate', customEnd)
         }
+        if (cashierFilter !== 'all') params.set('cashier', cashierFilter)
         params.set('limit', '500')
         const res = await fetch(`/api/sales?${params.toString()}`)
         if (res.ok) {
@@ -64,6 +68,7 @@ export default function AdminSales() {
           if (!cancelled) {
             if (json.stats) setFilterStats(json.stats)
             if (json.dailySummary) setServerDailySummary(json.dailySummary)
+            setCashierSales(cashierFilter !== 'all' ? json.sales ?? [] : [])
           }
         }
       } catch (err) {
@@ -77,7 +82,8 @@ export default function AdminSales() {
     return () => {
       cancelled = true
     }
-  }, [dateFilter, customStart, customEnd])
+    // `sales` is a dependency so totals refresh after a sale is added or deleted.
+  }, [dateFilter, customStart, customEnd, cashierFilter, sales])
 
   // Search & Pagination
   const [searchQuery, setSearchQuery] = useState('')
@@ -168,7 +174,8 @@ export default function AdminSales() {
 
   // Filter sales based on the active date and time filters
   const filteredSales = useMemo(() => {
-    return sales.filter((s) => {
+    const source = cashierFilter !== 'all' ? cashierSales : sales
+    return source.filter((s) => {
       // 1. Date & Time Filter
       if (!matchesDateTimeFilter(s.date)) return false
 
@@ -186,7 +193,7 @@ export default function AdminSales() {
 
       return true
     })
-  }, [sales, matchesDateTimeFilter, categoryFilter, cashierFilter, productMap])
+  }, [sales, cashierSales, matchesDateTimeFilter, categoryFilter, cashierFilter, productMap])
 
   // Filter sales based on search query
   const searchedSales = useMemo(() => {
@@ -208,10 +215,10 @@ export default function AdminSales() {
     const isRangeUnfiltered =
       timeFilter === 'all' &&
       categoryFilter === 'all' &&
-      cashierFilter === 'all' &&
       !searchQuery.trim()
 
-    const activeStats = filterStats || (dateFilter === 'all' ? serverStats : null)
+    // Server stats already respect the date range and cashier filter.
+    const activeStats = filterStats || (dateFilter === 'all' && cashierFilter === 'all' ? serverStats : null)
 
     if (isRangeUnfiltered && activeStats) {
       let revenue = activeStats.totalRevenue
@@ -219,6 +226,7 @@ export default function AdminSales() {
       let profit = activeStats.profit
       const approvedReturns = returnRequests.filter((r) => {
         if (r.status !== 'approved') return false
+        if (cashierFilter !== 'all' && r.cashierName?.trim() !== cashierFilter) return false
         return matchesDateTimeFilter(r.createdAt || r.updatedAt)
       })
       approvedReturns.forEach((r) => {
@@ -403,7 +411,8 @@ export default function AdminSales() {
 
   // Group sales by day based on searched sales or serverDailySummary
   const dailySales = useMemo(() => {
-    if (categoryFilter === 'all' && cashierFilter === 'all' && timeFilter === 'all' && !searchQuery.trim() && serverDailySummary.length > 0) {
+    // Server daily summary already respects the date range and cashier filter.
+    if (categoryFilter === 'all' && timeFilter === 'all' && !searchQuery.trim() && serverDailySummary.length > 0) {
       return serverDailySummary
     }
     const map = new Map<string, { date: string; revenue: number; profit: number; itemsSold: number; txCount: number }>()
@@ -427,7 +436,7 @@ export default function AdminSales() {
       }
     })
     return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date))
-  }, [searchedSales, categoryFilter, cashierFilter, timeFilter, searchQuery, serverDailySummary])
+  }, [searchedSales, categoryFilter, timeFilter, searchQuery, serverDailySummary])
 
   // Date Range label for slip printing
   const activeDateRangeLabel = useMemo(() => {

@@ -28,6 +28,7 @@ export async function GET(req: Request) {
     const startDateParam = searchParams.get('startDate')
     const endDateParam = searchParams.get('endDate')
     const paymentMethod = searchParams.get('paymentMethod')
+    const cashier = searchParams.get('cashier')
 
     await dbConnect()
 
@@ -80,6 +81,10 @@ export async function GET(req: Request) {
 
     if (paymentMethod && paymentMethod !== 'all') {
       filter.paymentMethod = paymentMethod
+    }
+
+    if (cashier && cashier !== 'all') {
+      filter.cashierName = cashier
     }
 
     let query = Sale.find(filter).sort({ date: -1 }).lean()
