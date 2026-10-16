@@ -40,11 +40,12 @@ async function generateQRCode(text: string): Promise<string> {
   }
 }
 
-export async function printReceipt(sale: Sale) {
+/** Returns false when the print window could not be opened (e.g. popups blocked). */
+export async function printReceipt(sale: Sale): Promise<boolean> {
   const printWindow = window.open('', '_blank', 'width=340,height=600')
   if (!printWindow) {
     alert('Please allow popups to print receipts')
-    return
+    return false
   }
 
   const invoiceBarcodeText = `INV-${sale.id.slice(-8).toUpperCase()}`
@@ -235,6 +236,7 @@ export async function printReceipt(sale: Sale) {
 
   printWindow.document.write(html)
   printWindow.document.close()
+  return true
 }
 
 /** Print dedicated Return / Refund Slip */

@@ -18,6 +18,12 @@ export default function PosPage() {
   const [cart, setCart] = useState<CartLine[]>([])
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [lastSale, setLastSale] = useState<Sale | null>(null)
+  // Each receipt prints only once, so a sale can't be handed out twice.
+  const [lastSalePrinted, setLastSalePrinted] = useState(false)
+
+  const printLastSale = async (sale: Sale) => {
+    if (await printReceipt(sale)) setLastSalePrinted(true)
+  }
   const [scannerOpen, setScannerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [returnModal, setReturnModal] = useState<Product | null>(null)
@@ -346,9 +352,10 @@ export default function PosPage() {
 
     setCheckoutModalOpen(false)
     setLastSale(sale)
+    setLastSalePrinted(false)
     setCart([])
     flash('ok', `Sale complete: ${formatMoney(sale.total)}`)
-    void printReceipt(sale)
+    void printLastSale(sale)
   }
 
   // Open Bill Return Modal for a specific sale
@@ -948,13 +955,14 @@ export default function PosPage() {
             </div>
             <button
               type="button"
-              onClick={() => void printReceipt(lastSale)}
-              className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50/50 text-blue-750 hover:bg-blue-100/70 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs"
+              onClick={() => void printLastSale(lastSale)}
+              disabled={lastSalePrinted}
+              className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50/50 text-blue-750 hover:bg-blue-100/70 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-50/50 dark:disabled:hover:bg-blue-950/20"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
               </svg>
-              Print Receipt
+              {lastSalePrinted ? 'Receipt Printed' : 'Print Receipt'}
             </button>
           </div>
         )}
