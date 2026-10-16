@@ -37,7 +37,7 @@ export async function POST(req: Request) {
         usersInserted++
       } else if (
         !existing.password.startsWith('$2') ||
-        !(await bcrypt.compare(u.password, existing.password))
+        !(await bcrypt.compare(u.password ?? '', existing.password))
       ) {
         // Sync stored password with mockData (re-hashed by the pre-save hook).
         existing.password = u.password
