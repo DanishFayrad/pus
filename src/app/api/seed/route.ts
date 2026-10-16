@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 /**
  * POST /api/seed
  * Requires header `x-seed-secret: <SEED_SECRET env value>`.
- * Idempotent user setup only — does not touch products, sales, or returns.
+ * Idempotent admin setup only — does not touch cashiers, products, sales, or returns.
  */
 export async function POST(req: Request) {
   const expected = process.env.SEED_SECRET
@@ -21,11 +21,10 @@ export async function POST(req: Request) {
   try {
     await dbConnect()
 
-    await User.deleteMany({ role: 'cashier' })
-
+    // Only admin accounts are synced; cashier accounts are left untouched.
     let usersInserted = 0
     let usersMigrated = 0
-    for (const u of mockUsers) {
+    for (const u of mockUsers.filter((m) => m.role === 'admin')) {
       const existing = await User.findOne({ username: u.username.toLowerCase() })
       if (!existing) {
         await User.create({
