@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Product, Sale, SaleItem, ReturnRequest } from '../types'
+import { useAuth } from './AuthContext'
 
 export interface DashboardStats {
   totalRevenue: number
@@ -113,9 +114,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Reload whenever the signed-in user changes, so data appears right after login
+  // (the APIs reject unauthenticated requests made before it).
+  const userId = useAuth().user?.id
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (userId) void refresh()
+  }, [userId, refresh])
 
   const addProduct = useCallback<StoreContextValue['addProduct']>(
     async (p) => {

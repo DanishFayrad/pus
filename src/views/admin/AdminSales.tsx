@@ -21,6 +21,7 @@ export default function AdminSales() {
   const [customTimeStart, setCustomTimeStart] = useState('09:00')
   const [customTimeEnd, setCustomTimeEnd] = useState('17:00')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [cashierFilter, setCashierFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'receipts' | 'products' | 'daily' | 'vendor-closing'>('receipts')
 
   // Server-side calculated stats across all database records for active range
@@ -92,6 +93,27 @@ export default function AdminSales() {
     return Array.from(cats).sort()
   }, [products])
 
+  // All staff accounts, so every cashier is listed even before their first sale
+  const [staffNames, setStaffNames] = useState<string[]>([])
+  useEffect(() => {
+    fetch('/api/users')
+      .then((r) => (r.ok ? r.json() : { users: [] }))
+      .then((json: { users: { name: string; role: string }[] }) =>
+        setStaffNames(json.users.filter((u) => u.role !== 'waiter').map((u) => u.name)),
+      )
+      .catch(() => {})
+  }, [])
+
+  // Staff accounts plus anyone else found on sales (e.g. deleted accounts)
+  const availableCashiers = useMemo(() => {
+    const names = new Set<string>()
+    staffNames.forEach((n) => n?.trim() && names.add(n.trim()))
+    sales.forEach((s) => {
+      if (s.cashierName?.trim()) names.add(s.cashierName.trim())
+    })
+    return Array.from(names).sort()
+  }, [sales, staffNames])
+
   // Map of productId to product for fast category lookup
   const productMap = useMemo(() => {
     const map = new Map<string, (typeof products)[0]>()
@@ -102,7 +124,7 @@ export default function AdminSales() {
   // Reset pagination when date/time filter, search query, or tab changes
   useEffect(() => {
     setCurrentPage(1)
-  }, [dateFilter, timeFilter, customTimeStart, customTimeEnd, categoryFilter, searchQuery, activeTab])
+  }, [dateFilter, timeFilter, customTimeStart, customTimeEnd, categoryFilter, cashierFilter, searchQuery, activeTab])
 
   const removeSale = async (id: string, label: string) => {
     const ok = await confirm({
@@ -159,9 +181,12 @@ export default function AdminSales() {
         if (!hasMatchingCategory) return false
       }
 
+      // 3. Cashier Filter
+      if (cashierFilter !== 'all' && s.cashierName?.trim() !== cashierFilter) return false
+
       return true
     })
-  }, [sales, matchesDateTimeFilter, categoryFilter, productMap])
+  }, [sales, matchesDateTimeFilter, categoryFilter, cashierFilter, productMap])
 
   // Filter sales based on search query
   const searchedSales = useMemo(() => {
@@ -183,6 +208,7 @@ export default function AdminSales() {
     const isRangeUnfiltered =
       timeFilter === 'all' &&
       categoryFilter === 'all' &&
+      cashierFilter === 'all' &&
       !searchQuery.trim()
 
     const activeStats = filterStats || (dateFilter === 'all' ? serverStats : null)
@@ -235,7 +261,10 @@ export default function AdminSales() {
         if (prod?.category?.toLowerCase() !== categoryFilter.toLowerCase()) return false
       }
 
-      // 3. Search query matching
+      // 3. Cashier matching
+      if (cashierFilter !== 'all' && r.cashierName?.trim() !== cashierFilter) return false
+
+      // 4. Search query matching
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase()
         if (!r.productName.toLowerCase().includes(q)) return false
@@ -267,6 +296,7 @@ export default function AdminSales() {
     dateFilter,
     timeFilter,
     categoryFilter,
+    cashierFilter,
     searchQuery,
     productMap,
     matchesDateTimeFilter,
@@ -373,7 +403,7 @@ export default function AdminSales() {
 
   // Group sales by day based on searched sales or serverDailySummary
   const dailySales = useMemo(() => {
-    if (categoryFilter === 'all' && timeFilter === 'all' && !searchQuery.trim() && serverDailySummary.length > 0) {
+    if (categoryFilter === 'all' && cashierFilter === 'all' && timeFilter === 'all' && !searchQuery.trim() && serverDailySummary.length > 0) {
       return serverDailySummary
     }
     const map = new Map<string, { date: string; revenue: number; profit: number; itemsSold: number; txCount: number }>()
@@ -397,7 +427,7 @@ export default function AdminSales() {
       }
     })
     return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date))
-  }, [searchedSales, categoryFilter, timeFilter, searchQuery, serverDailySummary])
+  }, [searchedSales, categoryFilter, cashierFilter, timeFilter, searchQuery, serverDailySummary])
 
   // Date Range label for slip printing
   const activeDateRangeLabel = useMemo(() => {
@@ -473,7 +503,7 @@ export default function AdminSales() {
       {/* Filters Panel */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 p-4 shadow-2xs space-y-4">
         {/* Vendor / Category & Date Filters */}
-        <div className="grid md:grid-cols-[1fr_auto] gap-4 items-start">
+        <div className="grid md:grid-cols-[1fr_auto_auto] gap-4 items-start">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">Date Range Filter</h2>
             <div className="flex flex-wrap gap-2">
@@ -522,6 +552,21 @@ export default function AdminSales() {
               <option value="all">All Vendors</option>
               {availableVendors.map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Cashier Selector */}
+          <div className="min-w-[200px]">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Filter By Cashier</h2>
+            <select
+              value={cashierFilter}
+              onChange={(e) => setCashierFilter(e.target.value)}
+              className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
+            >
+              <option value="all">All Cashiers</option>
+              {availableCashiers.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>
