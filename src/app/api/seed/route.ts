@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
 import dbConnect from '../../../lib/mongodb'
 import User from '../../../models/User'
 import { mockUsers } from '../../../data/mockData'
@@ -34,7 +35,11 @@ export async function POST(req: Request) {
           role: u.role,
         })
         usersInserted++
-      } else if (!existing.password.startsWith('$2')) {
+      } else if (
+        !existing.password.startsWith('$2') ||
+        !(await bcrypt.compare(u.password, existing.password))
+      ) {
+        // Sync stored password with mockData (re-hashed by the pre-save hook).
         existing.password = u.password
         await existing.save()
         usersMigrated++
